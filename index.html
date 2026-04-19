@@ -42,6 +42,21 @@
         <div id="opening-title" class="opening-title">Pick an opening to begin</div>
         <div id="status" class="status"></div>
       </div>
+      <div id="puzzle-bar" class="puzzle-bar hidden">
+        <div class="puzzle-bar-row">
+          <span class="puzzle-badge" id="puzzle-diff">\u2605</span>
+          <span id="puzzle-title" class="puzzle-title">—</span>
+          <span class="puzzle-timer" id="puzzle-timer">0.0s</span>
+        </div>
+        <div class="puzzle-bar-row muted small">
+          <span id="puzzle-desc"></span>
+        </div>
+        <div class="puzzle-bar-row">
+          <span class="puzzle-score">Session: <strong id="puzzle-score">0</strong></span>
+          <span class="puzzle-score">Best: <strong id="puzzle-best">0</strong></span>
+          <button id="puzzle-next" class="primary-btn" style="margin-left:auto;">Next puzzle</button>
+        </div>
+      </div>
       <button id="hint-banner" class="hint-banner hidden" type="button">
         <span class="hint-label">Play</span>
         <span id="hint-san" class="hint-san">—</span>
@@ -94,6 +109,7 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
   <script src="js/openings.js"></script>
+  <script src="js/puzzles.js"></script>
   <script src="js/board.js"></script>
   <script src="js/engine.js"></script>
   <script src="js/app.js"></script>

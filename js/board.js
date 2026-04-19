@@ -437,32 +437,56 @@
         if (e.button !== undefined && e.button !== 0) return;
         if (!this.opts.canDrag || !this.opts.canDrag(entry.square, entry)) return;
         e.preventDefault();
+        e.stopPropagation();
         const startSq = entry.square;
         if (this.opts.onSelect) this.opts.onSelect(startSq, entry);
+
         const rect = this.root.getBoundingClientRect();
         const sqSize = rect.width / 8;
+        const isTouch = e.pointerType === "touch";
+        // Touch: moderate lift + gentle scale so piece stays visible above the
+        // finger without drifting so far that drop-target feels off.
+        // Mouse: follow the cursor directly, no offset or scale.
+        const liftY = isTouch ? -sqSize * 0.7 : 0;
+        const scale = isTouch ? 1.25 : 1.0;
         const startX = e.clientX;
         const startY = e.clientY;
         const baseTransform = el.style.transform;
-        // On touch, lift the piece up + scale it so the user can see it
-        // above their finger. Mouse: no lift offset.
-        const isTouch = e.pointerType === "touch" || e.pointerType === "pen";
-        const liftY = isTouch ? -sqSize * 0.9 : 0;
-        const scale = isTouch ? 1.6 : 1.0;
+
         let lastX = startX;
         let lastY = startY;
         let moved = false;
+        let hoverSq = null;
 
         el.classList.add("dragging");
-        // Drop the hint glow while actively dragging so it doesn't fight
-        // with drop-shadow/transform updates each frame.
         el.classList.remove("hint-piece");
         try { el.setPointerCapture?.(e.pointerId); } catch (_) {}
 
+        const squareAt = (cx, cy) => {
+          const x = cx - rect.left;
+          const y = cy - rect.top;
+          if (x < 0 || y < 0 || x >= rect.width || y >= rect.height) return null;
+          const fIdx = Math.max(0, Math.min(7, Math.floor(x / sqSize)));
+          const rIdx = Math.max(0, Math.min(7, Math.floor(y / sqSize)));
+          const f = this.orientation === "w" ? fIdx : 7 - fIdx;
+          const r = this.orientation === "w" ? rIdx : 7 - rIdx;
+          return coordToSquare(f, r);
+        };
+
+        const setHover = (sq) => {
+          if (hoverSq === sq) return;
+          if (hoverSq) this.squares[hoverSq]?.classList.remove("drag-over", "drag-over-legal", "drag-over-illegal");
+          hoverSq = sq;
+          if (sq) {
+            const legal = this.legalForSelected.includes(sq);
+            this.squares[sq]?.classList.add("drag-over", legal ? "drag-over-legal" : "drag-over-illegal");
+          }
+        };
+
         const updateTransform = (cx, cy) => {
           const dx = cx - startX;
-          const dy = cy - startY;
-          el.style.transform = `${baseTransform} translate(${dx}px, ${dy + liftY}px) scale(${scale})`;
+          const dy = cy - startY + liftY;
+          el.style.transform = `${baseTransform} translate(${dx}px, ${dy}px) scale(${scale})`;
         };
         updateTransform(startX, startY);
 
@@ -470,51 +494,57 @@
           ev.preventDefault();
           lastX = ev.clientX;
           lastY = ev.clientY;
-          if (!moved && (Math.abs(lastX - startX) > 4 || Math.abs(lastY - startY) > 4)) {
-            moved = true;
-          }
+          if (!moved && (Math.abs(lastX - startX) > 3 || Math.abs(lastY - startY) > 3)) moved = true;
           updateTransform(lastX, lastY);
+          setHover(squareAt(lastX, lastY + liftY));
+        };
+
+        const snapBackSmooth = () => {
+          // Re-enable transition and reset to origin: piece animates home.
+          el.classList.remove("dragging");
+          el.style.transform = baseTransform;
         };
 
         const onUp = (ev) => {
-          el.classList.remove("dragging");
-          el.style.transform = baseTransform;
+          setHover(null);
           window.removeEventListener("pointermove", onMove);
           window.removeEventListener("pointerup", onUp);
           window.removeEventListener("pointercancel", onUp);
 
-          // Use the "logical" finger position (where the piece was visually)
           const cx = (ev.clientX ?? lastX);
           const cy = (ev.clientY ?? lastY) + liftY;
-          const x = cx - rect.left;
-          const y = cy - rect.top;
-          if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
+          const dest = squareAt(cx, cy);
+
+          if (!moved || dest === startSq) {
+            // Not a real drag — treat as click, keep selection visible.
+            snapBackSmooth();
+            return;
+          }
+
+          this._suppressNextClick = true;
+
+          if (dest && this.legalForSelected.includes(dest)) {
+            // Valid drop: snap the piece back to origin instantly (no
+            // animation) — the app's setPosition() will animate it cleanly
+            // to the target. Otherwise we'd get a double-animation.
+            el.classList.remove("dragging");
+            el.style.transition = "none";
+            el.style.transform = baseTransform;
+            void el.offsetWidth;
+            el.style.transition = "";
             this.selected = null;
             this.legalForSelected = [];
             this._renderHighlights();
-            return;
-          }
-          const fIdx = Math.floor(x / sqSize);
-          const rIdx = Math.floor(y / sqSize);
-          const f = this.orientation === "w" ? fIdx : 7 - fIdx;
-          const r = this.orientation === "w" ? rIdx : 7 - rIdx;
-          const dest = coordToSquare(f, r);
-          if (dest === startSq) {
-            // treat as click — keep selection
-            return;
-          }
-          if (moved) this._suppressNextClick = true;
-          if (!this.legalForSelected.includes(dest)) {
+            this._tryMove(startSq, dest);
+          } else {
+            // Invalid / off-board: smooth snap-back.
+            snapBackSmooth();
             this.selected = null;
             this.legalForSelected = [];
             this._renderHighlights();
-            return;
           }
-          this.selected = null;
-          this.legalForSelected = [];
-          this._renderHighlights();
-          this._tryMove(startSq, dest);
         };
+
         window.addEventListener("pointermove", onMove, { passive: false });
         window.addEventListener("pointerup", onUp);
         window.addEventListener("pointercancel", onUp);

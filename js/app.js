@@ -24,6 +24,14 @@
   const hintBannerEl = document.getElementById("hint-banner");
   const hintSanEl = document.getElementById("hint-san");
   const hintWhyEl = document.getElementById("hint-why");
+  const puzzleBarEl = document.getElementById("puzzle-bar");
+  const puzzleTitleEl = document.getElementById("puzzle-title");
+  const puzzleDescEl = document.getElementById("puzzle-desc");
+  const puzzleDiffEl = document.getElementById("puzzle-diff");
+  const puzzleTimerEl = document.getElementById("puzzle-timer");
+  const puzzleScoreEl = document.getElementById("puzzle-score");
+  const puzzleBestEl = document.getElementById("puzzle-best");
+  const puzzleNextBtn = document.getElementById("puzzle-next");
   const flipBtn = document.getElementById("flip-btn");
   const backBtn = document.getElementById("back-btn");
   const hintBtn = document.getElementById("hint-btn");
@@ -36,23 +44,43 @@
     historyStack: [],
     engine: null,
     pendingOpponent: false,
-    mode: "practice", // "practice" | "demo"
+    mode: "practice", // "practice" | "demo" | "puzzle"
     demoCancelled: false,
     linePly: 0,
     lineDeviated: false,
     hintsOn: true,
+    puzzle: null,
+    puzzlePly: 0,
+    puzzleStartTs: 0,
+    puzzleTimerIv: null,
+    puzzleFailed: false,
+    puzzleDone: false,
+    puzzleSessionScore: 0,
+    puzzleBestScore: parseInt(localStorage.getItem("opener.puzzle.best") || "0", 10),
   };
 
   const board = new ChessBoard(boardEl, {
     canDrag: (sq, entry) => {
-      if (!state.opening) return false;
       if (state.mode === "demo") return false;
+      if (state.mode === "puzzle") {
+        if (!state.puzzle || state.puzzleDone) return false;
+        return entry.color === state.chess.turn();
+      }
+      if (!state.opening) return false;
       if (state.chess.turn() !== state.opening.side) return false;
       return entry.color === state.opening.side;
     },
     onSelect: (sq, entry) => {
-      if (!state.opening) return;
       if (state.mode === "demo") return;
+      if (state.mode === "puzzle") {
+        if (!state.puzzle || state.puzzleDone) return;
+        if (entry.color !== state.chess.turn()) return;
+        const moves = state.chess.moves({ square: sq, verbose: true });
+        board.selectSquare(sq);
+        board.highlightLegal(moves.map((m) => m.to));
+        return;
+      }
+      if (!state.opening) return;
       if (state.chess.turn() !== state.opening.side) return;
       if (entry.color !== state.opening.side) return;
       const moves = state.chess.moves({ square: sq, verbose: true });
@@ -61,6 +89,7 @@
     },
     onUserMove: (from, to, promotion) => {
       if (state.mode === "demo") return;
+      if (state.mode === "puzzle") return handlePuzzleMove(from, to, promotion);
       handleUserMove(from, to, promotion);
     },
   });
@@ -100,12 +129,42 @@
       }
       mobileOpeningSelect.appendChild(optGroup);
     }
+
+    // Puzzles section
+    if (window.PUZZLES && window.PUZZLES.length) {
+      const label = document.createElement("div");
+      label.className = "opening-group-label";
+      label.textContent = "Puzzles";
+      openingListEl.appendChild(label);
+
+      const randomItem = document.createElement("div");
+      randomItem.className = "opening-item";
+      randomItem.dataset.id = "puzzle:random";
+      randomItem.innerHTML = `
+        <div class="name"><span class="badge badge-puzzle">game</span> Puzzle Rush</div>
+        <div class="meta">Solve random puzzles as fast as you can — best score saved locally.</div>
+      `;
+      randomItem.onclick = () => startPuzzle("random");
+      openingListEl.appendChild(randomItem);
+
+      const optGroup = document.createElement("optgroup");
+      optGroup.label = "Puzzles";
+      const opt = document.createElement("option");
+      opt.value = "puzzle:random";
+      opt.textContent = "\u2665 Puzzle Rush";
+      optGroup.appendChild(opt);
+      mobileOpeningSelect.appendChild(optGroup);
+    }
   }
 
   function selectOpening(id) {
     const opening = OPENINGS.find((o) => o.id === id);
     if (!opening) return;
     state.demoCancelled = true;
+    state.mode = "practice";
+    stopPuzzleTimer();
+    hidePuzzleBar();
+    state.puzzle = null;
     state.opening = opening;
     state.historyStack = [];
     state.linePly = 0;
@@ -483,6 +542,151 @@
 
   function wait(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
+  // ===== Puzzle mode =====
+  function startPuzzle(kind) {
+    stopPuzzleTimer();
+    state.demoCancelled = true;
+    state.opening = null;
+    state.historyStack = [];
+    state.mode = "puzzle";
+    state.puzzleFailed = false;
+    state.puzzleDone = false;
+    state.puzzlePly = 0;
+
+    // Pick puzzle
+    let puzzle;
+    if (kind === "random") {
+      const remaining = PUZZLES.filter((p) => p.id !== (state.puzzle && state.puzzle.id));
+      const pool = remaining.length ? remaining : PUZZLES;
+      puzzle = pool[Math.floor(Math.random() * pool.length)];
+    } else {
+      puzzle = PUZZLES.find((p) => p.id === kind) || PUZZLES[0];
+    }
+    state.puzzle = puzzle;
+    state.chess = new Chess(puzzle.fen);
+    const side = state.chess.turn(); // whose move = the solver's side
+
+    // Update UI
+    openingTitleEl.textContent = "Puzzle";
+    statusEl.textContent = "";
+    hideHintBanner();
+    board.clearArrows();
+    board.flip(side);
+    board.setPosition(state.chess.fen(), { animate: false, lastMove: null });
+    renderHistory();
+    [...openingListEl.querySelectorAll(".opening-item")].forEach((el) =>
+      el.classList.toggle("active", el.dataset.id === "puzzle:random")
+    );
+
+    // Show puzzle bar, hide coach principles
+    coachEl.className = "coach-msg";
+    coachEl.innerHTML = "<strong>Find the best move.</strong> Score is based on speed — faster = more points.";
+    puzzleBarEl.classList.remove("hidden");
+    puzzleTitleEl.textContent = `${puzzle.category} — ${puzzle.name}`;
+    puzzleDescEl.textContent = puzzle.description || "";
+    puzzleDiffEl.textContent = "\u2605".repeat(puzzle.difficulty || 1);
+    puzzleScoreEl.textContent = state.puzzleSessionScore;
+    puzzleBestEl.textContent = state.puzzleBestScore;
+    puzzleNextBtn.disabled = false;
+    puzzleNextBtn.textContent = "Skip";
+
+    // Disable practice-only buttons
+    hintBtn.disabled = false;
+    hintBtn.textContent = state.hintsOn ? "Hide hints" : "Show hints";
+    backBtn.disabled = true;
+    resetBtn.disabled = false;
+    newLineBtn.disabled = true;
+
+    startPuzzleTimer();
+  }
+
+  function startPuzzleTimer() {
+    state.puzzleStartTs = performance.now();
+    if (state.puzzleTimerIv) clearInterval(state.puzzleTimerIv);
+    state.puzzleTimerIv = setInterval(() => {
+      const t = (performance.now() - state.puzzleStartTs) / 1000;
+      puzzleTimerEl.textContent = t.toFixed(1) + "s";
+    }, 100);
+  }
+  function stopPuzzleTimer() {
+    if (state.puzzleTimerIv) { clearInterval(state.puzzleTimerIv); state.puzzleTimerIv = null; }
+  }
+
+  function puzzleElapsed() { return (performance.now() - state.puzzleStartTs) / 1000; }
+
+  async function handlePuzzleMove(from, to, promotion) {
+    if (state.puzzleDone) return;
+    const playedUci = from + to + (promotion || "");
+    const expected = state.puzzle.solution[state.puzzlePly];
+    if (!expected) return;
+
+    if (playedUci !== expected) {
+      // Wrong move. Mark failed but allow trying again after reset.
+      state.puzzleFailed = true;
+      state.puzzleDone = true;
+      stopPuzzleTimer();
+      // Still show the move for visual feedback
+      const move = state.chess.move({ from, to, promotion: promotion || undefined });
+      if (move) {
+        board.setPosition(state.chess.fen(), { animate: true, lastMove: { from: move.from, to: move.to } });
+        pushHistory(move);
+        renderHistory();
+      }
+      const expectedSan = sanOfMoveFromFen(state.puzzle.fen, expected);
+      coachEl.className = "coach-msg bad";
+      coachEl.innerHTML = `<strong>Not the best.</strong> The winning move was <strong>${expectedSan}</strong>.`;
+      puzzleNextBtn.textContent = "Next puzzle";
+      return;
+    }
+
+    // Correct move
+    const move = state.chess.move({ from, to, promotion: promotion || undefined });
+    if (!move) return;
+    state.puzzlePly++;
+    board.setPosition(state.chess.fen(), { animate: true, lastMove: { from: move.from, to: move.to } });
+    pushHistory(move);
+    renderHistory();
+    board.setCheck(state.chess.in_check() ? findKingSquare(state.chess.turn()) : null);
+
+    if (state.puzzlePly >= state.puzzle.solution.length) {
+      return finishPuzzle();
+    }
+
+    // Otherwise play the opponent's forced response
+    await wait(400);
+    const oppUci = state.puzzle.solution[state.puzzlePly];
+    const oppMove = state.chess.move({ from: oppUci.slice(0, 2), to: oppUci.slice(2, 4), promotion: oppUci[4] });
+    if (oppMove) {
+      state.puzzlePly++;
+      board.setPosition(state.chess.fen(), { animate: true, lastMove: { from: oppMove.from, to: oppMove.to } });
+      pushHistory(oppMove);
+      renderHistory();
+      board.setCheck(state.chess.in_check() ? findKingSquare(state.chess.turn()) : null);
+      if (state.puzzlePly >= state.puzzle.solution.length) return finishPuzzle();
+    }
+  }
+
+  function finishPuzzle() {
+    state.puzzleDone = true;
+    stopPuzzleTimer();
+    const elapsed = puzzleElapsed();
+    const base = 100 * (state.puzzle.difficulty || 1);
+    const timeFactor = Math.max(0.2, 1 - elapsed / 60);
+    const gained = Math.round(base * timeFactor);
+    state.puzzleSessionScore += gained;
+    if (state.puzzleSessionScore > state.puzzleBestScore) {
+      state.puzzleBestScore = state.puzzleSessionScore;
+      localStorage.setItem("opener.puzzle.best", String(state.puzzleBestScore));
+    }
+    puzzleScoreEl.textContent = state.puzzleSessionScore;
+    puzzleBestEl.textContent = state.puzzleBestScore;
+    puzzleNextBtn.textContent = "Next puzzle";
+    coachEl.className = "coach-msg good";
+    coachEl.innerHTML = `<strong>Solved in ${elapsed.toFixed(1)}s!</strong> +${gained} points.`;
+  }
+
+  function hidePuzzleBar() { puzzleBarEl.classList.add("hidden"); }
+
   // ===== Buttons =====
   flipBtn.onclick = () => board.flip(board.orientation === "w" ? "b" : "w");
   backBtn.onclick = () => {
@@ -505,6 +709,11 @@
     else { board.clearArrows(); hideHintBanner(); }
   };
   resetBtn.onclick = () => {
+    if (state.mode === "puzzle" && state.puzzle) {
+      // Restart the same puzzle
+      startPuzzle(state.puzzle.id);
+      return;
+    }
     if (!state.opening) return;
     state.demoCancelled = true;
     replaySetupAndStart();
@@ -512,8 +721,12 @@
   newLineBtn.onclick = () => state.opening && selectOpening(state.opening.id);
   mobileOpeningSelect.onchange = () => {
     const id = mobileOpeningSelect.value;
-    if (id) selectOpening(id);
+    if (!id) return;
+    if (id === "puzzle:random") startPuzzle("random");
+    else selectOpening(id);
   };
+
+  puzzleNextBtn.onclick = () => startPuzzle("random");
 
   // ===== Engine init =====
   (async function initEngine() {
