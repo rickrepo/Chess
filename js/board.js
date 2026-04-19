@@ -100,21 +100,29 @@
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
       line.setAttribute("x1", fromC.x);
       line.setAttribute("y1", fromC.y);
-      // Pull endpoint back so the arrowhead doesn't overshoot the square
       const dx = toC.x - fromC.x, dy = toC.y - fromC.y;
       const len = Math.hypot(dx, dy);
-      const back = 25;
+      const back = 30;
       line.setAttribute("x2", toC.x - (dx / len) * back);
       line.setAttribute("y2", toC.y - (dy / len) * back);
-      line.setAttribute("stroke", "rgba(80,170,80,0.85)");
-      line.setAttribute("stroke-width", "14");
+      line.setAttribute("stroke", "rgba(80,170,80,0.95)");
+      line.setAttribute("stroke-width", "18");
       line.setAttribute("stroke-linecap", "round");
       line.setAttribute("marker-end", "url(#arrowhead)");
+      line.setAttribute("class", "hint-arrow");
       this.arrowLayer.appendChild(line);
+
+      // Highlight source + destination squares AND the piece itself
+      this.squares[from]?.classList.add("hint-from");
+      this.squares[to]?.classList.add("hint-to");
+      const fromPiece = this.pieceEls.get(from);
+      if (fromPiece) fromPiece.el.classList.add("hint-piece");
     }
 
     clearArrows() {
       [...this.arrowLayer.querySelectorAll("line")].forEach((n) => n.remove());
+      Object.values(this.squares).forEach((s) => s.classList.remove("hint-from", "hint-to"));
+      this.pieceEls.forEach((p) => p.el.classList.remove("hint-piece"));
     }
 
     _squareCenter(sq) {

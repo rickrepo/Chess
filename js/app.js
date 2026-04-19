@@ -21,6 +21,9 @@
   const historyEl = document.getElementById("history");
   const coachEl = document.getElementById("coach");
   const mobileOpeningSelect = document.getElementById("mobile-opening-select");
+  const hintBannerEl = document.getElementById("hint-banner");
+  const hintSanEl = document.getElementById("hint-san");
+  const hintWhyEl = document.getElementById("hint-why");
   const flipBtn = document.getElementById("flip-btn");
   const backBtn = document.getElementById("back-btn");
   const hintBtn = document.getElementById("hint-btn");
@@ -287,6 +290,7 @@
       statusEl.textContent = msg;
       hintBtn.disabled = true;
       board.clearArrows();
+      hideHintBanner();
       return;
     }
 
@@ -297,6 +301,7 @@
 
     if (!myTurn) {
       board.clearArrows();
+      hideHintBanner();
       playOpponentMove();
     } else {
       updateHintArrow();
@@ -400,15 +405,29 @@
   }
 
   // ===== Hint arrow =====
+  function showHintBanner(san, why) {
+    if (!san) { hintBannerEl.classList.add("hidden"); return; }
+    hintSanEl.textContent = san;
+    hintWhyEl.textContent = why || "";
+    hintBannerEl.classList.remove("hidden");
+  }
+
+  function hideHintBanner() { hintBannerEl.classList.add("hidden"); }
+
   function updateHintArrow() {
-    if (!state.opening || !state.hintsOn) { board.clearArrows(); return; }
-    if (state.chess.turn() !== state.opening.side) { board.clearArrows(); return; }
+    if (!state.opening || !state.hintsOn) { board.clearArrows(); hideHintBanner(); return; }
+    if (state.chess.turn() !== state.opening.side) { board.clearArrows(); hideHintBanner(); return; }
     const expected = expectedLineMove();
     if (expected) {
       board.drawArrow(expected.uci.slice(0, 2), expected.uci.slice(2, 4));
+      const san = sanOfMoveFromFen(state.chess.fen(), expected.uci);
+      showHintBanner(san, expected.note || "");
       return;
     }
     if (state.engine) {
+      hintSanEl.textContent = "…";
+      hintWhyEl.textContent = "engine thinking";
+      hintBannerEl.classList.remove("hidden");
       const fen = state.chess.fen();
       state.engine.ready()
         .then(() => state.engine.evaluate(fen, { depth: 10, multiPv: 1 }))
@@ -416,6 +435,8 @@
           if (state.chess.fen() !== fen) return;
           if (ev.bestMove && state.hintsOn) {
             board.drawArrow(ev.bestMove.slice(0, 2), ev.bestMove.slice(2, 4));
+            const san = sanOfMoveFromFen(fen, ev.bestMove);
+            showHintBanner(san, "engine recommendation");
           }
         }).catch(() => {});
     }
@@ -506,7 +527,8 @@
   hintBtn.onclick = () => {
     state.hintsOn = !state.hintsOn;
     hintBtn.textContent = state.hintsOn ? "Hide hints" : "Show hints";
-    if (state.hintsOn) updateHintArrow(); else board.clearArrows();
+    if (state.hintsOn) updateHintArrow();
+    else { board.clearArrows(); hideHintBanner(); }
   };
   resetBtn.onclick = () => {
     if (!state.opening) return;
