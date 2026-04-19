@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Opener — Chess Opening Trainer</title>
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="preconnect" href="https://explorer.lichess.ovh" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%E2%99%9E%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">&#9822;</span>
+      <span>Opener</span>
+      <span class="tagline">practice the openings you actually face</span>
+    </div>
+    <div class="topbar-controls">
+      <label class="rating-pill">
+        Rating band:
+        <select id="rating-select">
+          <option value="0,1000" selected>0 – 1000</option>
+          <option value="1000,1200">1000 – 1200</option>
+          <option value="1200,1400">1200 – 1400</option>
+          <option value="1400,1600">1400 – 1600</option>
+        </select>
+      </label>
+      <button id="flip-btn" class="ghost-btn" title="Flip board">&#8645; Flip</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar left">
+      <h2>Practice an Opening</h2>
+      <p class="muted small">Curated for sub-1000 play. Opponent moves are sampled from real Lichess games at your rating band.</p>
+      <div id="opening-list" class="opening-list"></div>
+    </aside>
+
+    <section class="board-area">
+      <div class="board-header">
+        <div id="opening-title" class="opening-title">Pick an opening to begin</div>
+        <div id="status" class="status"></div>
+      </div>
+
+      <div class="board-wrap">
+        <div id="board" class="board" aria-label="Chess board"></div>
+      </div>
+
+      <div class="board-footer">
+        <button id="back-btn" class="ghost-btn" disabled>&larr; Back</button>
+        <button id="hint-btn" class="primary-btn" disabled>Show hint</button>
+        <button id="reset-btn" class="ghost-btn" disabled>Restart line</button>
+        <button id="new-line-btn" class="ghost-btn" disabled>New line</button>
+      </div>
+    </section>
+
+    <aside class="sidebar right">
+      <div class="panel">
+        <h3>Move stats <span class="muted small" id="stats-context"></span></h3>
+        <div id="stats" class="stats">Pick an opening to see what people play here.</div>
+      </div>
+      <div class="panel">
+        <h3>Engine <span id="engine-status" class="muted small">loading…</span></h3>
+        <div id="engine" class="engine">eval: —</div>
+      </div>
+      <div class="panel">
+        <h3>Move history</h3>
+        <ol id="history" class="history"></ol>
+      </div>
+      <div class="panel coach">
+        <h3>Coach</h3>
+        <div id="coach" class="coach-msg muted">Make a move when it's your turn. The system will tell you whether it matches what most players in your rating band do here.</div>
+      </div>
+    </aside>
+  </main>
+
+  <div id="promotion-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3>Promote to:</h3>
+      <div class="promo-options" id="promo-options"></div>
+    </div>
+  </div>
+
+  <footer class="footer muted small">
+    Stats from <a href="https://lichess.org" target="_blank" rel="noopener">lichess.org</a> opening explorer ·
+    Engine: Stockfish (WASM) ·
+    Built for practice, not for ratings.
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+  <script src="js/openings.js"></script>
+  <script src="js/lichess.js"></script>
+  <script src="js/board.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
