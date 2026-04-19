@@ -95,6 +95,7 @@
     drawArrow(from, to) {
       this.clearArrows();
       if (!from || !to) return;
+      this.currentHint = { from, to };
       const fromC = this._squareCenter(from);
       const toC = this._squareCenter(to);
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -120,6 +121,7 @@
     }
 
     clearArrows() {
+      this.currentHint = null;
       [...this.arrowLayer.querySelectorAll("line")].forEach((n) => n.remove());
       Object.values(this.squares).forEach((s) => s.classList.remove("hint-from", "hint-to"));
       this.pieceEls.forEach((p) => p.el.classList.remove("hint-piece"));
@@ -399,6 +401,19 @@
     }
 
     _handleSquareClick(sq) {
+      // Tap-to-play-hint: if there's an active hint and the user taps
+      // either the source or destination of the hint, play it directly.
+      if (this.currentHint && !this.selected) {
+        if (sq === this.currentHint.to || sq === this.currentHint.from) {
+          const from = this.currentHint.from;
+          const to = this.currentHint.to;
+          this.selected = null;
+          this.legalForSelected = [];
+          this._renderHighlights();
+          this._tryMove(from, to);
+          return;
+        }
+      }
       if (this.selected && this.legalForSelected.includes(sq)) {
         const from = this.selected;
         this.selected = null;
@@ -439,6 +454,9 @@
         let moved = false;
 
         el.classList.add("dragging");
+        // Drop the hint glow while actively dragging so it doesn't fight
+        // with drop-shadow/transform updates each frame.
+        el.classList.remove("hint-piece");
         try { el.setPointerCapture?.(e.pointerId); } catch (_) {}
 
         const updateTransform = (cx, cy) => {

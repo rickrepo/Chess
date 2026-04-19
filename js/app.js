@@ -408,14 +408,24 @@
   }
 
   // ===== Hint arrow =====
-  function showHintBanner(san, why) {
+  function showHintBanner(san, why, playable) {
     if (!san) { hintBannerEl.classList.add("hidden"); return; }
     hintSanEl.textContent = san;
     hintWhyEl.textContent = why || "";
     hintBannerEl.classList.remove("hidden");
+    hintBannerEl.dataset.playable = playable ? "1" : "0";
+    const tap = hintBannerEl.querySelector(".hint-tap");
+    if (tap) tap.style.display = playable ? "" : "none";
   }
 
-  function hideHintBanner() { hintBannerEl.classList.add("hidden"); }
+  function hideHintBanner() { hintBannerEl.classList.add("hidden"); hintBannerEl.dataset.playable = "0"; }
+
+  hintBannerEl.addEventListener("click", () => {
+    if (hintBannerEl.dataset.playable !== "1") return;
+    const hint = board.currentHint;
+    if (!hint) return;
+    handleUserMove(hint.from, hint.to, null);
+  });
 
   function updateHintArrow() {
     if (!state.opening || !state.hintsOn) { board.clearArrows(); hideHintBanner(); return; }
@@ -424,17 +434,12 @@
     if (expected) {
       board.drawArrow(expected.uci.slice(0, 2), expected.uci.slice(2, 4));
       const san = sanOfMoveFromFen(state.chess.fen(), expected.uci);
-      showHintBanner(san, expected.note || "");
+      showHintBanner(san, expected.note || "", true);
       return;
     }
-    // Off the prepared line — DON'T block on the engine. Nudge the user
-    // to rewind and try again instead. Their training value is higher
-    // from replaying the correct line than from winging it with engine
-    // moves that don't match the opening's plan.
+    // Off the prepared line — DON'T block on the engine.
     board.clearArrows();
-    hintSanEl.textContent = "Off line";
-    hintWhyEl.innerHTML = `You've left the prepared line. Tap <strong>Back</strong> to retry from the last line move, or <strong>Restart</strong> to start over.`;
-    hintBannerEl.classList.remove("hidden");
+    showHintBanner("Off line", "Tap Back to retry from the last line move, or Restart to start over.", false);
   }
 
   // ===== Stats panel: line move only (no engine queue piling) =====
