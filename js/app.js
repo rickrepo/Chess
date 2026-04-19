@@ -32,6 +32,11 @@
   const puzzleScoreEl = document.getElementById("puzzle-score");
   const puzzleBestEl = document.getElementById("puzzle-best");
   const puzzleNextBtn = document.getElementById("puzzle-next");
+  const puzzleFilterTheme = document.getElementById("puzzle-filter-theme");
+  const puzzleFilterDiff = document.getElementById("puzzle-filter-diff");
+  const puzzleFilterCat = document.getElementById("puzzle-filter-cat");
+  const puzzleSolvedEl = document.getElementById("puzzle-solved");
+  const puzzleTotalEl = document.getElementById("puzzle-total");
   const flipBtn = document.getElementById("flip-btn");
   const backBtn = document.getElementById("back-btn");
   const hintBtn = document.getElementById("hint-btn");
@@ -57,6 +62,12 @@
     puzzleDone: false,
     puzzleSessionScore: 0,
     puzzleBestScore: parseInt(localStorage.getItem("opener.puzzle.best") || "0", 10),
+    puzzleSolved: 0,
+    puzzleFilter: {
+      theme: localStorage.getItem("opener.puzzle.filter.theme") || "",
+      difficulty: localStorage.getItem("opener.puzzle.filter.difficulty") || "",
+      category: localStorage.getItem("opener.puzzle.filter.category") || "",
+    },
   };
 
   const board = new ChessBoard(boardEl, {
@@ -94,10 +105,61 @@
     },
   });
 
-  // ===== Opening list =====
+  // ===== Sidebar list (Puzzles first, then Openings) =====
   function renderOpeningList() {
     openingListEl.innerHTML = "";
     mobileOpeningSelect.innerHTML = '<option value="">— pick one —</option>';
+
+    // Puzzles section FIRST (primary mode).
+    if (window.PUZZLES && window.PUZZLES.length) {
+      const label = document.createElement("div");
+      label.className = "opening-group-label";
+      label.textContent = "Puzzles";
+      openingListEl.appendChild(label);
+
+      const rushItem = document.createElement("div");
+      rushItem.className = "opening-item";
+      rushItem.dataset.id = "puzzle:random";
+      rushItem.innerHTML = `
+        <div class="name"><span class="badge badge-puzzle">game</span> Puzzle Rush</div>
+        <div class="meta">Solve mating puzzles — best score saved locally. Filter by theme & difficulty.</div>
+      `;
+      rushItem.onclick = () => startPuzzle("random");
+      openingListEl.appendChild(rushItem);
+
+      // Quick-pick by difficulty
+      for (const d of window.PUZZLE_DIFFICULTIES || [1, 2, 3]) {
+        const item = document.createElement("div");
+        item.className = "opening-item";
+        item.dataset.id = `puzzle:diff:${d}`;
+        const count = PUZZLES.filter((p) => p.difficulty === d).length;
+        item.innerHTML = `
+          <div class="name">${"\u2605".repeat(d)} puzzles <span class="muted small">(${count})</span></div>
+          <div class="meta">Only ${d === 1 ? "easy" : d === 2 ? "medium" : "hard"} puzzles.</div>
+        `;
+        item.onclick = () => {
+          state.puzzleFilter.difficulty = String(d);
+          state.puzzleFilter.theme = "";
+          state.puzzleFilter.category = "";
+          localStorage.setItem("opener.puzzle.filter.difficulty", state.puzzleFilter.difficulty);
+          localStorage.setItem("opener.puzzle.filter.theme", "");
+          localStorage.setItem("opener.puzzle.filter.category", "");
+          populatePuzzleFilters();
+          startPuzzle("random");
+        };
+        openingListEl.appendChild(item);
+      }
+
+      const optGroup = document.createElement("optgroup");
+      optGroup.label = "Puzzles";
+      const opt = document.createElement("option");
+      opt.value = "puzzle:random";
+      opt.textContent = "\u2665 Puzzle Rush";
+      optGroup.appendChild(opt);
+      mobileOpeningSelect.appendChild(optGroup);
+    }
+
+    // Openings section (secondary).
     const groups = new Map();
     for (const o of OPENINGS) {
       if (!groups.has(o.group)) groups.set(o.group, []);
@@ -127,32 +189,6 @@
         opt.textContent = (o.side === "w" ? "\u2659 " : "\u265F ") + o.name;
         optGroup.appendChild(opt);
       }
-      mobileOpeningSelect.appendChild(optGroup);
-    }
-
-    // Puzzles section
-    if (window.PUZZLES && window.PUZZLES.length) {
-      const label = document.createElement("div");
-      label.className = "opening-group-label";
-      label.textContent = "Puzzles";
-      openingListEl.appendChild(label);
-
-      const randomItem = document.createElement("div");
-      randomItem.className = "opening-item";
-      randomItem.dataset.id = "puzzle:random";
-      randomItem.innerHTML = `
-        <div class="name"><span class="badge badge-puzzle">game</span> Puzzle Rush</div>
-        <div class="meta">Solve random puzzles as fast as you can — best score saved locally.</div>
-      `;
-      randomItem.onclick = () => startPuzzle("random");
-      openingListEl.appendChild(randomItem);
-
-      const optGroup = document.createElement("optgroup");
-      optGroup.label = "Puzzles";
-      const opt = document.createElement("option");
-      opt.value = "puzzle:random";
-      opt.textContent = "\u2665 Puzzle Rush";
-      optGroup.appendChild(opt);
       mobileOpeningSelect.appendChild(optGroup);
     }
   }
@@ -543,6 +579,45 @@
   function wait(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
   // ===== Puzzle mode =====
+  function filteredPuzzles() {
+    const f = state.puzzleFilter;
+    return PUZZLES.filter((p) => {
+      if (f.category && p.category !== f.category) return false;
+      if (f.difficulty && p.difficulty !== parseInt(f.difficulty, 10)) return false;
+      if (f.theme && !(p.themes || []).includes(f.theme)) return false;
+      return true;
+    });
+  }
+
+  function populatePuzzleFilters() {
+    // Gather all themes from the puzzle bank
+    const themes = new Set();
+    for (const p of PUZZLES) (p.themes || []).forEach((t) => themes.add(t));
+    const sorted = [...themes].sort();
+    puzzleFilterTheme.innerHTML = '<option value="">Any</option>' +
+      sorted.map((t) => `<option value="${t}">${t}</option>`).join("");
+    puzzleFilterTheme.value = state.puzzleFilter.theme || "";
+    puzzleFilterDiff.value = state.puzzleFilter.difficulty || "";
+    puzzleFilterCat.value = state.puzzleFilter.category || "";
+    const total = filteredPuzzles().length;
+    puzzleTotalEl.textContent = total;
+  }
+
+  function onFilterChange() {
+    state.puzzleFilter.theme = puzzleFilterTheme.value;
+    state.puzzleFilter.difficulty = puzzleFilterDiff.value;
+    state.puzzleFilter.category = puzzleFilterCat.value;
+    localStorage.setItem("opener.puzzle.filter.theme", state.puzzleFilter.theme);
+    localStorage.setItem("opener.puzzle.filter.difficulty", state.puzzleFilter.difficulty);
+    localStorage.setItem("opener.puzzle.filter.category", state.puzzleFilter.category);
+    const total = filteredPuzzles().length;
+    puzzleTotalEl.textContent = total;
+    if (total === 0) {
+      coachEl.className = "coach-msg warn";
+      coachEl.innerHTML = "No puzzles match those filters. Relax them and try again.";
+    }
+  }
+
   function startPuzzle(kind) {
     stopPuzzleTimer();
     state.demoCancelled = true;
@@ -553,12 +628,18 @@
     state.puzzleDone = false;
     state.puzzlePly = 0;
 
-    // Pick puzzle
+    // Pick puzzle. "random" uses the current filters.
     let puzzle;
-    if (kind === "random") {
-      const remaining = PUZZLES.filter((p) => p.id !== (state.puzzle && state.puzzle.id));
-      const pool = remaining.length ? remaining : PUZZLES;
-      puzzle = pool[Math.floor(Math.random() * pool.length)];
+    if (kind === "random" || kind === "puzzle:random") {
+      const pool = filteredPuzzles();
+      if (pool.length === 0) {
+        coachEl.className = "coach-msg warn";
+        coachEl.innerHTML = "No puzzles match those filters. Relax them and try again.";
+        return;
+      }
+      const remaining = pool.filter((p) => p.id !== (state.puzzle && state.puzzle.id));
+      const selectPool = remaining.length ? remaining : pool;
+      puzzle = selectPool[Math.floor(Math.random() * selectPool.length)];
     } else {
       puzzle = PUZZLES.find((p) => p.id === kind) || PUZZLES[0];
     }
@@ -587,6 +668,8 @@
     puzzleDiffEl.textContent = "\u2605".repeat(puzzle.difficulty || 1);
     puzzleScoreEl.textContent = state.puzzleSessionScore;
     puzzleBestEl.textContent = state.puzzleBestScore;
+    puzzleSolvedEl.textContent = state.puzzleSolved;
+    puzzleTotalEl.textContent = filteredPuzzles().length;
     puzzleNextBtn.disabled = false;
     puzzleNextBtn.textContent = "Skip";
 
@@ -678,6 +761,8 @@
       state.puzzleBestScore = state.puzzleSessionScore;
       localStorage.setItem("opener.puzzle.best", String(state.puzzleBestScore));
     }
+    state.puzzleSolved++;
+    puzzleSolvedEl.textContent = state.puzzleSolved;
     puzzleScoreEl.textContent = state.puzzleSessionScore;
     puzzleBestEl.textContent = state.puzzleBestScore;
     puzzleNextBtn.textContent = "Next puzzle";
@@ -727,6 +812,9 @@
   };
 
   puzzleNextBtn.onclick = () => startPuzzle("random");
+  puzzleFilterTheme.onchange = () => onFilterChange();
+  puzzleFilterDiff.onchange = () => onFilterChange();
+  puzzleFilterCat.onchange = () => onFilterChange();
 
   // ===== Engine init =====
   (async function initEngine() {
@@ -741,5 +829,9 @@
   })();
 
   renderOpeningList();
+  populatePuzzleFilters();
   hintBtn.textContent = "Hide hints";
+
+  // Land in Puzzle mode by default — this is the primary experience now.
+  startPuzzle("random");
 })();

@@ -32,8 +32,8 @@
 
   <main class="layout">
     <aside class="sidebar left">
-      <h2>Practice an Opening</h2>
-      <p class="muted small">Curated for sub-1000 play. Opponent moves are sampled from real Lichess games at your rating band.</p>
+      <h2>Puzzles & Training</h2>
+      <p class="muted small">Solve mating puzzles as fast as you can — or practice a specific opening. Puzzle scores are saved locally.</p>
       <div id="opening-list" class="opening-list"></div>
     </aside>
 
@@ -51,9 +51,34 @@
         <div class="puzzle-bar-row muted small">
           <span id="puzzle-desc"></span>
         </div>
+        <div class="puzzle-bar-row puzzle-filters">
+          <label class="puzzle-filter">
+            Theme
+            <select id="puzzle-filter-theme">
+              <option value="">Any</option>
+            </select>
+          </label>
+          <label class="puzzle-filter">
+            Difficulty
+            <select id="puzzle-filter-diff">
+              <option value="">Any</option>
+              <option value="1">\u2605 Easy</option>
+              <option value="2">\u2605\u2605 Medium</option>
+              <option value="3">\u2605\u2605\u2605 Hard</option>
+            </select>
+          </label>
+          <label class="puzzle-filter">
+            Category
+            <select id="puzzle-filter-cat">
+              <option value="">Any</option>
+              <option value="Mate in 1">Mate in 1</option>
+            </select>
+          </label>
+        </div>
         <div class="puzzle-bar-row">
           <span class="puzzle-score">Session: <strong id="puzzle-score">0</strong></span>
           <span class="puzzle-score">Best: <strong id="puzzle-best">0</strong></span>
+          <span class="puzzle-score">Solved: <strong id="puzzle-solved">0</strong>/<strong id="puzzle-total">0</strong></span>
           <button id="puzzle-next" class="primary-btn" style="margin-left:auto;">Next puzzle</button>
         </div>
       </div>

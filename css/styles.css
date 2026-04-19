@@ -226,6 +226,27 @@ a { color: var(--accent-2); }
   font-variant-numeric: tabular-nums;
   margin-left: 2px;
 }
+.puzzle-filters { gap: 8px; }
+.puzzle-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  background: rgba(0,0,0,0.25);
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.puzzle-filter select {
+  background: transparent;
+  color: var(--text);
+  border: none;
+  outline: none;
+  font: inherit;
+  font-size: 12px;
+  padding-right: 2px;
+}
 
 /* board area */
 .board-area {
