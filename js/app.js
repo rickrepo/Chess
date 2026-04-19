@@ -297,7 +297,10 @@
     const myTurn = state.chess.turn() === state.opening.side;
     statusEl.textContent = myTurn ? "Your move." : "Opponent thinking…";
     refreshStats();
-    runEngine();
+    // Skip background engine eval when on-line — saves the worker for
+    // opponent moves. runEngine() only runs for off-line positions.
+    if (state.lineDeviated) runEngine();
+    else engineEl.textContent = "on line — eval skipped";
 
     if (!myTurn) {
       board.clearArrows();
@@ -424,27 +427,19 @@
       showHintBanner(san, expected.note || "");
       return;
     }
-    if (state.engine) {
-      hintSanEl.textContent = "…";
-      hintWhyEl.textContent = "engine thinking";
-      hintBannerEl.classList.remove("hidden");
-      const fen = state.chess.fen();
-      state.engine.ready()
-        .then(() => state.engine.evaluate(fen, { depth: 10, multiPv: 1 }))
-        .then((ev) => {
-          if (state.chess.fen() !== fen) return;
-          if (ev.bestMove && state.hintsOn) {
-            board.drawArrow(ev.bestMove.slice(0, 2), ev.bestMove.slice(2, 4));
-            const san = sanOfMoveFromFen(fen, ev.bestMove);
-            showHintBanner(san, "engine recommendation");
-          }
-        }).catch(() => {});
-    }
+    // Off the prepared line — DON'T block on the engine. Nudge the user
+    // to rewind and try again instead. Their training value is higher
+    // from replaying the correct line than from winging it with engine
+    // moves that don't match the opening's plan.
+    board.clearArrows();
+    hintSanEl.textContent = "Off line";
+    hintWhyEl.innerHTML = `You've left the prepared line. Tap <strong>Back</strong> to retry from the last line move, or <strong>Restart</strong> to start over.`;
+    hintBannerEl.classList.remove("hidden");
   }
 
-  // ===== Stats panel: line move + engine top-3 =====
-  async function refreshStats() {
-    statsCtxEl.textContent = "(local engine)";
+  // ===== Stats panel: line move only (no engine queue piling) =====
+  function refreshStats() {
+    statsCtxEl.textContent = "";
     const expected = expectedLineMove();
     let html = "";
     if (expected) {
@@ -452,37 +447,11 @@
       html += `<div class="stat-row book"><div class="san">${san}</div><div class="bar"><span class="w" style="width:100%"></span></div><div class="pct">line</div></div>`;
       if (expected.note) html += `<div class="muted small" style="padding:6px 6px 0;">${expected.note}</div>`;
     } else if (state.lineDeviated) {
-      html += `<div class="muted small" style="padding:4px 6px;">Off the prepared line — engine continuation:</div>`;
+      html += `<div class="muted small" style="padding:4px 6px;">Off the prepared line. Tap <em>Back</em> to retry.</div>`;
     } else {
-      html += `<div class="muted small" style="padding:4px 6px;">Engine top moves:</div>`;
+      html += `<div class="muted small" style="padding:4px 6px;">No line here — the game continues.</div>`;
     }
-    statsEl.innerHTML = html + `<div id="engine-top-moves"></div>`;
-
-    if (state.engine) {
-      try {
-        await state.engine.ready();
-        const fen = state.chess.fen();
-        const ev = await state.engine.evaluate(fen, { depth: 11, multiPv: 3 });
-        if (state.chess.fen() !== fen) return;
-        const host = document.getElementById("engine-top-moves");
-        if (!host) return;
-        host.innerHTML = "";
-        ev.lines.forEach((ln, i) => {
-          const san = sanOfMoveFromFen(fen, ln.move);
-          let scoreStr;
-          if (ln.mateIn !== null) scoreStr = `M${ln.mateIn}`;
-          else {
-            let s = ln.scoreCp / 100;
-            if (state.chess.turn() === "b") s = -s;
-            scoreStr = (s >= 0 ? "+" : "") + s.toFixed(2);
-          }
-          const row = document.createElement("div");
-          row.className = "stat-row";
-          row.innerHTML = `<div class="san">${san}</div><div class="bar"><span class="w" style="width:${Math.max(10, 100 - i * 28)}%"></span></div><div class="pct">${scoreStr}</div>`;
-          host.appendChild(row);
-        });
-      } catch (_) {}
-    }
+    statsEl.innerHTML = html;
   }
 
   async function runEngine() {
