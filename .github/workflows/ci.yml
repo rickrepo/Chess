@@ -21,10 +21,10 @@ jobs:
             echo "checking $f"
             node --check "$f"
           done
-      - name: Validate HTML exists and links resolve locally
+      - name: Validate required files exist
         run: |
           test -f index.html
           test -f css/styles.css
-          for f in js/openings.js js/lichess.js js/board.js js/engine.js js/app.js; do
+          for f in js/openings.js js/board.js js/engine.js js/app.js; do
             test -f "$f" || (echo "missing $f" && exit 1)
           done
