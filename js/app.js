@@ -1,19 +1,13 @@
-/* Main app: glues Board + chess.js + Lichess explorer + Stockfish.
+/* Main app: glues Board + chess.js + local Stockfish.
+   NO network calls during play — opponent moves come from a baked-in
+   mainLine for as long as the user stays on it, and from Stockfish
+   (running locally as a Web Worker) once the user deviates or a line
+   doesn't cover the current position.
 
-   Flow per opening:
-   1. User picks an opening from sidebar.
-   2. We replay the opening's setup moves to land on the practice position.
-   3. If it's the opponent's turn, we ASYNC fetch Lichess stats and play
-      a weighted-random opponent move (so different sessions practice
-      different common variations).
-   4. When it's the user's turn, we again fetch Lichess stats; on the
-      user's move we evaluate:
-         - top-1 popular  -> "Book — most common reply"
-         - top-3 popular  -> "Theory — a common alternative"
-         - in book but rare -> "Sideline"
-         - not in book    -> Stockfish eval delta gives feedback
-   5. Stats panel always shows top moves with win/draw/loss bars.
-*/
+   Hints: when it's the user's turn, an arrow on the board always points
+   to the recommended move (from the line if on it, otherwise from
+   Stockfish). A toggle in the footer hides arrows if you want to test
+   yourself. */
 (function () {
   const Chess = window.Chess;
   const boardEl = document.getElementById("board");
@@ -26,7 +20,6 @@
   const engineStatusEl = document.getElementById("engine-status");
   const historyEl = document.getElementById("history");
   const coachEl = document.getElementById("coach");
-  const ratingSelect = document.getElementById("rating-select");
   const mobileOpeningSelect = document.getElementById("mobile-opening-select");
   const flipBtn = document.getElementById("flip-btn");
   const backBtn = document.getElementById("back-btn");
@@ -37,15 +30,14 @@
   const state = {
     chess: new Chess(),
     opening: null,
-    setupMoves: [],
-    historyStack: [], // {san, uci, fen}
-    statsForCurrent: null,
+    historyStack: [],
     engine: null,
     pendingOpponent: false,
-    ratingMin: 0,
-    ratingMax: 1000,
     mode: "practice", // "practice" | "demo"
     demoCancelled: false,
+    linePly: 0,
+    lineDeviated: false,
+    hintsOn: true,
   };
 
   const board = new ChessBoard(boardEl, {
@@ -70,7 +62,7 @@
     },
   });
 
-  // ====== Render opening list ======
+  // ===== Opening list =====
   function renderOpeningList() {
     openingListEl.innerHTML = "";
     mobileOpeningSelect.innerHTML = '<option value="">— pick one —</option>';
@@ -100,7 +92,7 @@
 
         const opt = document.createElement("option");
         opt.value = o.id;
-        opt.textContent = (o.side === "w" ? "♙ " : "♟ ") + o.name;
+        opt.textContent = (o.side === "w" ? "\u2659 " : "\u265F ") + o.name;
         optGroup.appendChild(opt);
       }
       mobileOpeningSelect.appendChild(optGroup);
@@ -110,21 +102,20 @@
   function selectOpening(id) {
     const opening = OPENINGS.find((o) => o.id === id);
     if (!opening) return;
-    state.demoCancelled = true; // cancel any in-flight demo
+    state.demoCancelled = true;
     state.opening = opening;
     state.historyStack = [];
-    state.setupMoves = [...(opening.moves || [])];
+    state.linePly = 0;
+    state.lineDeviated = false;
 
-    // Highlight active item / sync the mobile dropdown
     [...openingListEl.querySelectorAll(".opening-item")].forEach((el) =>
       el.classList.toggle("active", el.dataset.id === id)
     );
     if (mobileOpeningSelect.value !== id) mobileOpeningSelect.value = id;
 
     openingTitleEl.textContent = opening.name;
-
-    // Orient board so the user's side is at the bottom
     board.flip(opening.side);
+    board.clearArrows();
 
     backBtn.disabled = false;
     hintBtn.disabled = false;
@@ -132,10 +123,8 @@
     newLineBtn.disabled = false;
 
     if (opening.walkthrough && opening.walkthrough.length) {
-      // Demo first, then practice from the same starting position.
       runDemoThenPractice(opening);
     } else {
-      // Standard opening practice
       coachEl.className = "coach-msg";
       coachEl.innerHTML = principlesHtml(opening);
       replaySetupAndStart();
@@ -149,21 +138,51 @@
   }
 
   function setStartingPosition(opening) {
-    if (opening.startFen) {
-      state.chess = new Chess(opening.startFen);
-    } else {
-      state.chess = new Chess();
+    state.chess = opening.startFen ? new Chess(opening.startFen) : new Chess();
+  }
+
+  // The "line" followed by the opponent + graded against for the user
+  // comes from:
+  //   opening.mainLine  (string[] of UCI) - for openings
+  //   opening.walkthrough ({uci,note}[]) - for mating tricks
+  //   opening.moves ([] of UCI setup)    - these are played before practice
+  //
+  // setupMoves are NOT part of the line — they're pre-played to land at
+  // the practice start. The line begins at move (setup.length) counted
+  // from the starting position.
+  function getLine(opening) {
+    if (!opening) return null;
+    if (opening.walkthrough) {
+      // Walkthrough is played from the very start of the opening's FEN —
+      // during practice, we replay it move-by-move and the user follows.
+      return opening.walkthrough.map((s) => (typeof s === "string" ? { uci: s } : s));
     }
+    if (opening.mainLine) {
+      return opening.mainLine.map((s) => (typeof s === "string" ? { uci: s } : s));
+    }
+    return null;
+  }
+
+  function expectedLineMove() {
+    const op = state.opening;
+    if (!op || state.lineDeviated) return null;
+    const line = getLine(op);
+    if (!line) return null;
+    return line[state.linePly] || null;
   }
 
   async function replaySetupAndStart() {
     state.mode = "practice";
     setStartingPosition(state.opening);
     state.historyStack = [];
+    state.linePly = 0;
+    state.lineDeviated = false;
+    board.clearArrows();
     board.setPosition(state.chess.fen(), { animate: false, lastMove: null });
     renderHistory();
-    statusEl.textContent = state.setupMoves.length ? "Setting up line…" : "";
-    for (const uci of state.setupMoves) {
+    const setupMoves = state.opening.moves || [];
+    statusEl.textContent = setupMoves.length ? "Setting up line…" : "";
+    for (const uci of setupMoves) {
       await wait(220);
       const move = applyUci(uci);
       if (!move) break;
@@ -179,12 +198,15 @@
     state.demoCancelled = false;
     setStartingPosition(opening);
     state.historyStack = [];
+    state.linePly = 0;
+    state.lineDeviated = false;
+    board.clearArrows();
     board.setPosition(state.chess.fen(), { animate: false, lastMove: null });
     renderHistory();
     statusEl.textContent = "Demo — watch the trap unfold";
     coachEl.className = "coach-msg";
     coachEl.innerHTML = `<strong>${opening.name}</strong> — ${opening.description}<br><br>` +
-      `<em>Watch the moves below. Then you'll play it from ${opening.side === "w" ? "White's" : "Black's"} side.</em>`;
+      `<em>Watch the moves. Then you'll play it from ${opening.side === "w" ? "White's" : "Black's"} side.</em>`;
 
     const stepDelay = 850;
     await wait(700);
@@ -192,29 +214,17 @@
       if (state.demoCancelled) return;
       const step = opening.walkthrough[i];
       const move = applyUci(step.uci);
-      if (!move) {
-        console.warn("demo move illegal:", step.uci, "in", state.chess.fen());
-        break;
-      }
+      if (!move) break;
       board.setPosition(state.chess.fen(), { animate: true, lastMove: { from: move.from, to: move.to } });
       pushHistory(move);
       renderHistory();
-      // Update check highlight during demo
-      if (state.chess.in_check()) {
-        board.setCheck(findKingSquare(state.chess.turn()));
-      } else {
-        board.setCheck(null);
-      }
-      // Coach shows the note for THIS move
-      const moveLabel = `<strong>${move.san}</strong>`;
+      board.setCheck(state.chess.in_check() ? findKingSquare(state.chess.turn()) : null);
       coachEl.className = "coach-msg";
-      coachEl.innerHTML = `${moveLabel} — ${step.note || ""}`;
+      coachEl.innerHTML = `<strong>${move.san}</strong> — ${step.note || ""}`;
       await wait(stepDelay);
     }
-
     if (state.demoCancelled) return;
 
-    // Demo finished — now offer to practice
     statusEl.textContent = "Demo finished";
     coachEl.className = "coach-msg good";
     coachEl.innerHTML =
@@ -265,15 +275,8 @@
   }
 
   function afterMove() {
-    // Update check highlight
-    if (state.chess.in_check()) {
-      const kingSq = findKingSquare(state.chess.turn());
-      board.setCheck(kingSq);
-    } else {
-      board.setCheck(null);
-    }
+    board.setCheck(state.chess.in_check() ? findKingSquare(state.chess.turn()) : null);
 
-    // Check end-of-game
     if (state.chess.game_over()) {
       let msg;
       if (state.chess.in_checkmate()) msg = state.chess.turn() === state.opening.side ? "Checkmate — you lost." : "Checkmate — you won!";
@@ -283,26 +286,27 @@
       else msg = "Game over.";
       statusEl.textContent = msg;
       hintBtn.disabled = true;
+      board.clearArrows();
       return;
     }
 
-    // Whose turn
-    const turn = state.chess.turn();
-    const myTurn = turn === state.opening.side;
+    const myTurn = state.chess.turn() === state.opening.side;
     statusEl.textContent = myTurn ? "Your move." : "Opponent thinking…";
-
     refreshStats();
     runEngine();
 
     if (!myTurn) {
+      board.clearArrows();
       playOpponentMove();
+    } else {
+      updateHintArrow();
     }
   }
 
   function findKingSquare(color) {
-    const board2 = state.chess.board();
+    const b = state.chess.board();
     for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
-      const sq = board2[r][f];
+      const sq = b[r][f];
       if (sq && sq.type === "k" && sq.color === color) {
         return String.fromCharCode(97 + f) + (8 - r);
       }
@@ -310,49 +314,78 @@
     return null;
   }
 
+  // ===== Opponent: follow the line, or let Stockfish play =====
   async function playOpponentMove() {
     if (state.pendingOpponent) return;
     state.pendingOpponent = true;
     try {
-      const data = await LichessExplorer.fetchPosition({
-        fen: state.chess.fen(),
-        ratingMin: state.ratingMin,
-        ratingMax: state.ratingMax,
-      });
-      let chosen = LichessExplorer.sampleWeightedMove(data.moves);
-      let uci;
-      if (chosen) {
-        uci = chosen.uci;
-      } else {
-        // Position has no game data — fall back to engine.
-        await state.engine?.ready();
-        const ev = await state.engine.evaluate(state.chess.fen(), { depth: 10 });
-        uci = ev.bestMove;
+      await wait(400 + Math.random() * 300);
+      let uci = null;
+      const expected = expectedLineMove();
+      if (expected) {
+        const tmp = new Chess(state.chess.fen());
+        const ok = tmp.move({ from: expected.uci.slice(0, 2), to: expected.uci.slice(2, 4), promotion: expected.uci[4] });
+        if (ok) uci = expected.uci;
       }
-      if (!uci) return;
-      await wait(450 + Math.random() * 350); // small "thinking" delay
+      if (!uci && state.engine) {
+        try {
+          await state.engine.ready();
+          const ev = await state.engine.evaluate(state.chess.fen(), { depth: 10, multiPv: 3 });
+          if (ev.lines && ev.lines.length) {
+            const r = Math.random();
+            const i = r < 0.7 ? 0 : r < 0.9 ? Math.min(1, ev.lines.length - 1) : Math.min(2, ev.lines.length - 1);
+            uci = ev.lines[i].move;
+          } else if (ev.bestMove) {
+            uci = ev.bestMove;
+          }
+        } catch (_) {}
+      }
+      if (!uci) {
+        const moves = state.chess.moves({ verbose: true });
+        if (!moves.length) { afterMove(); return; }
+        const m = moves[Math.floor(Math.random() * moves.length)];
+        uci = m.from + m.to + (m.promotion || "");
+      }
       const move = applyUci(uci);
-      if (!move) return;
+      if (!move) { afterMove(); return; }
+      if (expected && move.from + move.to + (move.promotion || "") === expected.uci) state.linePly++;
       board.setPosition(state.chess.fen(), { animate: true, lastMove: { from: move.from, to: move.to } });
       pushHistory(move);
       renderHistory();
       afterMove();
     } catch (e) {
       console.error(e);
-      statusEl.textContent = "Couldn't reach Lichess — try again.";
+      statusEl.textContent = "Engine error — try Restart.";
     } finally {
       state.pendingOpponent = false;
     }
   }
 
+  // ===== User move: grade against the line, or let engine evaluate =====
   async function handleUserMove(from, to, promotion) {
+    board.clearArrows();
+    const expected = expectedLineMove();
+    const expectedUci = expected ? expected.uci : null;
+    const expectedSan = expected ? sanOfMoveFromFen(state.chess.fen(), expected.uci) : null;
     const move = state.chess.move({ from, to, promotion: promotion || undefined });
-    if (!move) return; // illegal
-    // Evaluate user's move BEFORE animating, against the prior stats
-    const stats = state.statsForCurrent;
-    const uci = move.from + move.to + (move.promotion || "");
-    const verdict = judgeMove(stats, uci, move.san);
-    coachVerdict(verdict, move);
+    if (!move) return;
+    const playedUci = move.from + move.to + (move.promotion || "");
+
+    if (expected && playedUci === expectedUci) {
+      state.linePly++;
+      coachEl.className = "coach-msg good";
+      coachEl.innerHTML = `<strong>${move.san}</strong> &#10003; — matches the recommended line.` +
+        (expected.note ? `<br><span class="muted small">${expected.note}</span>` : "");
+    } else if (expected) {
+      state.lineDeviated = true;
+      coachEl.className = "coach-msg warn";
+      coachEl.innerHTML = `<strong>${move.san}</strong> — off the prepared line. Recommended: <strong>${expectedSan}</strong>.` +
+        (expected.note ? `<br><span class="muted small">Why ${expectedSan}: ${expected.note}</span>` : "") +
+        `<br><span class="muted small">Engine continues from here. Hit <em>Back</em> to retry.</span>`;
+    } else {
+      coachEl.className = "coach-msg";
+      coachEl.innerHTML = `<strong>${move.san}</strong> — engine continuation below.`;
+    }
 
     board.setPosition(state.chess.fen(), { animate: true, lastMove: { from: move.from, to: move.to } });
     pushHistory(move);
@@ -360,95 +393,75 @@
     afterMove();
   }
 
-  function judgeMove(stats, uci, san) {
-    if (!stats || !stats.moves || stats.moves.length === 0) {
-      return { kind: "no-data", san };
-    }
-    const sorted = [...stats.moves].sort(
-      (a, b) => (b.white + b.draws + b.black) - (a.white + a.draws + a.black)
-    );
-    const total = sorted.reduce((s, m) => s + m.white + m.draws + m.black, 0);
-    const idx = sorted.findIndex((m) => m.uci === uci);
-    if (idx === -1) return { kind: "off-book", san };
-    const entry = sorted[idx];
-    const games = entry.white + entry.draws + entry.black;
-    const pct = (games / total) * 100;
-    if (idx === 0) return { kind: "top", san, pct, rank: 1 };
-    if (idx <= 2) return { kind: "common", san, pct, rank: idx + 1 };
-    return { kind: "sideline", san, pct, rank: idx + 1 };
+  function sanOfMoveFromFen(fen, uci) {
+    const tmp = new Chess(fen);
+    const m = tmp.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+    return m ? m.san : uci;
   }
 
-  function coachVerdict(v, move) {
-    coachEl.classList.remove("good", "warn", "bad");
-    let html;
-    switch (v.kind) {
-      case "top":
-        coachEl.classList.add("good");
-        html = `<strong>${v.san}</strong> — most common reply at this rating (${v.pct.toFixed(0)}%). Solid choice.`;
-        break;
-      case "common":
-        coachEl.classList.add("good");
-        html = `<strong>${v.san}</strong> — a known alternative (#${v.rank} most popular, ${v.pct.toFixed(0)}%).`;
-        break;
-      case "sideline":
-        coachEl.classList.add("warn");
-        html = `<strong>${v.san}</strong> — playable but uncommon at this rating (#${v.rank}, ${v.pct.toFixed(0)}%). The mainline is usually safer.`;
-        break;
-      case "off-book":
-        coachEl.classList.add("warn");
-        html = `<strong>${v.san}</strong> — out of book at this rating band. I'll let the engine evaluate.`;
-        break;
-      default:
-        html = `<strong>${v.san}</strong> — no game data here.`;
-    }
-    coachEl.innerHTML = html;
-  }
-
-  async function refreshStats() {
-    statsCtxEl.textContent = `(rating ${state.ratingMin}–${state.ratingMax})`;
-    statsEl.textContent = "Loading…";
-    try {
-      const data = await LichessExplorer.fetchPosition({
-        fen: state.chess.fen(),
-        ratingMin: state.ratingMin,
-        ratingMax: state.ratingMax,
-      });
-      state.statsForCurrent = data;
-      renderStats(data);
-    } catch (e) {
-      console.error(e);
-      statsEl.textContent = "Couldn't load stats.";
-    }
-  }
-
-  function renderStats(data) {
-    statsEl.innerHTML = "";
-    if (!data.moves || data.moves.length === 0) {
-      statsEl.textContent = "No game data at this rating band.";
+  // ===== Hint arrow =====
+  function updateHintArrow() {
+    if (!state.opening || !state.hintsOn) { board.clearArrows(); return; }
+    if (state.chess.turn() !== state.opening.side) { board.clearArrows(); return; }
+    const expected = expectedLineMove();
+    if (expected) {
+      board.drawArrow(expected.uci.slice(0, 2), expected.uci.slice(2, 4));
       return;
     }
-    const total = data.moves.reduce((s, m) => s + m.white + m.draws + m.black, 0);
-    const top = data.moves.slice(0, 8);
-    top.forEach((m, i) => {
-      const games = m.white + m.draws + m.black;
-      const pct = (games / total) * 100;
-      const wPct = (m.white / games) * 100;
-      const dPct = (m.draws / games) * 100;
-      const bPct = (m.black / games) * 100;
-      const row = document.createElement("div");
-      row.className = "stat-row" + (i === 0 ? " book" : "");
-      row.title = `${games.toLocaleString()} games · ${pct.toFixed(1)}% of plays · W ${wPct.toFixed(0)}% / D ${dPct.toFixed(0)}% / B ${bPct.toFixed(0)}%`;
-      row.innerHTML = `
-        <div class="san">${m.san}</div>
-        <div class="bar">
-          <span class="w" style="width:${wPct}%"></span>
-          <span class="d" style="width:${dPct}%"></span>
-          <span class="b" style="width:${bPct}%"></span>
-        </div>
-        <div class="pct">${pct.toFixed(0)}%</div>
-      `;
-      statsEl.appendChild(row);
-    });
+    if (state.engine) {
+      const fen = state.chess.fen();
+      state.engine.ready()
+        .then(() => state.engine.evaluate(fen, { depth: 10, multiPv: 1 }))
+        .then((ev) => {
+          if (state.chess.fen() !== fen) return;
+          if (ev.bestMove && state.hintsOn) {
+            board.drawArrow(ev.bestMove.slice(0, 2), ev.bestMove.slice(2, 4));
+          }
+        }).catch(() => {});
+    }
+  }
+
+  // ===== Stats panel: line move + engine top-3 =====
+  async function refreshStats() {
+    statsCtxEl.textContent = "(local engine)";
+    const expected = expectedLineMove();
+    let html = "";
+    if (expected) {
+      const san = sanOfMoveFromFen(state.chess.fen(), expected.uci);
+      html += `<div class="stat-row book"><div class="san">${san}</div><div class="bar"><span class="w" style="width:100%"></span></div><div class="pct">line</div></div>`;
+      if (expected.note) html += `<div class="muted small" style="padding:6px 6px 0;">${expected.note}</div>`;
+    } else if (state.lineDeviated) {
+      html += `<div class="muted small" style="padding:4px 6px;">Off the prepared line — engine continuation:</div>`;
+    } else {
+      html += `<div class="muted small" style="padding:4px 6px;">Engine top moves:</div>`;
+    }
+    statsEl.innerHTML = html + `<div id="engine-top-moves"></div>`;
+
+    if (state.engine) {
+      try {
+        await state.engine.ready();
+        const fen = state.chess.fen();
+        const ev = await state.engine.evaluate(fen, { depth: 11, multiPv: 3 });
+        if (state.chess.fen() !== fen) return;
+        const host = document.getElementById("engine-top-moves");
+        if (!host) return;
+        host.innerHTML = "";
+        ev.lines.forEach((ln, i) => {
+          const san = sanOfMoveFromFen(fen, ln.move);
+          let scoreStr;
+          if (ln.mateIn !== null) scoreStr = `M${ln.mateIn}`;
+          else {
+            let s = ln.scoreCp / 100;
+            if (state.chess.turn() === "b") s = -s;
+            scoreStr = (s >= 0 ? "+" : "") + s.toFixed(2);
+          }
+          const row = document.createElement("div");
+          row.className = "stat-row";
+          row.innerHTML = `<div class="san">${san}</div><div class="bar"><span class="w" style="width:${Math.max(10, 100 - i * 28)}%"></span></div><div class="pct">${scoreStr}</div>`;
+          host.appendChild(row);
+        });
+      } catch (_) {}
+    }
   }
 
   async function runEngine() {
@@ -457,84 +470,56 @@
     try {
       await state.engine.ready();
       const fen = state.chess.fen();
-      const ev = await state.engine.evaluate(fen, { depth: 13 });
-      if (state.chess.fen() !== fen) return; // moved on
+      const ev = await state.engine.evaluate(fen, { depth: 12, multiPv: 1 });
+      if (state.chess.fen() !== fen) return;
       let scoreStr;
       if (ev.mateIn !== null) scoreStr = `M${ev.mateIn}`;
       else {
-        // chess.js turn determines whose perspective. Stockfish gives score from side-to-move.
-        // Convert to white-positive convention.
         let s = ev.score;
         if (state.chess.turn() === "b") s = -s;
         scoreStr = (s >= 0 ? "+" : "") + s.toFixed(2);
       }
-      const bestSan = ev.bestMove ? uciToSanSafe(ev.bestMove) : "?";
+      const bestSan = ev.bestMove ? sanOfMoveFromFen(fen, ev.bestMove) : "?";
       engineEl.textContent = `${scoreStr}   best: ${bestSan}   d${ev.depth}`;
-    } catch (e) {
+    } catch (_) {
       engineEl.textContent = "engine error";
     }
   }
 
-  function uciToSanSafe(uci) {
-    const tmp = new Chess(state.chess.fen());
-    const m = tmp.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length === 5 ? uci[4] : undefined });
-    return m ? m.san : uci;
-  }
-
   function wait(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
-  // ====== Buttons ======
-  flipBtn.onclick = () => {
-    const cur = board.orientation;
-    board.flip(cur === "w" ? "b" : "w");
-  };
-  ratingSelect.onchange = () => {
-    const [min, max] = ratingSelect.value.split(",").map(Number);
-    state.ratingMin = min;
-    state.ratingMax = max;
-    if (state.opening) refreshStats();
-  };
+  // ===== Buttons =====
+  flipBtn.onclick = () => board.flip(board.orientation === "w" ? "b" : "w");
   backBtn.onclick = () => {
     if (state.historyStack.length === 0) return;
     state.chess.undo();
     state.historyStack.pop();
+    // If we were on the line, step back the line pointer too; if we were
+    // off, leave deviated flag alone.
+    if (!state.lineDeviated && state.linePly > 0) state.linePly--;
     const last = state.historyStack[state.historyStack.length - 1];
-    const lm = last
-      ? { from: last.uci.slice(0, 2), to: last.uci.slice(2, 4) }
-      : null;
+    const lm = last ? { from: last.uci.slice(0, 2), to: last.uci.slice(2, 4) } : null;
     board.setPosition(state.chess.fen(), { animate: true, lastMove: lm });
     renderHistory();
     afterMove();
   };
   hintBtn.onclick = () => {
-    if (!state.statsForCurrent || !state.statsForCurrent.moves?.length) return;
-    const top = state.statsForCurrent.moves[0];
-    coachEl.classList.remove("good", "warn", "bad");
-    coachEl.classList.add("good");
-    coachEl.innerHTML = `Hint: most popular move here is <strong>${top.san}</strong>. Try it.`;
-    // Show hint dot on the destination
-    const fromUci = top.uci;
-    const fromSq = fromUci.slice(0, 2);
-    const toSq = fromUci.slice(2, 4);
-    board.selectSquare(fromSq);
-    board.highlightLegal([toSq]);
+    state.hintsOn = !state.hintsOn;
+    hintBtn.textContent = state.hintsOn ? "Hide hints" : "Show hints";
+    if (state.hintsOn) updateHintArrow(); else board.clearArrows();
   };
   resetBtn.onclick = () => {
     if (!state.opening) return;
     state.demoCancelled = true;
     replaySetupAndStart();
   };
-  newLineBtn.onclick = () => {
-    if (!state.opening) return;
-    selectOpening(state.opening.id);
-  };
-
+  newLineBtn.onclick = () => state.opening && selectOpening(state.opening.id);
   mobileOpeningSelect.onchange = () => {
     const id = mobileOpeningSelect.value;
     if (id) selectOpening(id);
   };
 
-  // ====== Engine init ======
+  // ===== Engine init =====
   (async function initEngine() {
     try {
       state.engine = new Engine();
@@ -547,4 +532,5 @@
   })();
 
   renderOpeningList();
+  hintBtn.textContent = "Hide hints";
 })();

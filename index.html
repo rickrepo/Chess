@@ -6,7 +6,6 @@
   <meta name="theme-color" content="#1c1b18" />
   <title>Opener — Chess Opening Trainer</title>
   <link rel="stylesheet" href="css/styles.css" />
-  <link rel="preconnect" href="https://explorer.lichess.ovh" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%E2%99%9E%3C/text%3E%3C/svg%3E" />
 </head>
 <body>
@@ -17,16 +16,7 @@
       <span class="tagline">practice the openings you actually face</span>
     </div>
     <div class="topbar-controls">
-      <label class="rating-pill">
-        <span class="rating-label">Rating</span>
-        <select id="rating-select">
-          <option value="0,1000" selected>0–1000</option>
-          <option value="1000,1200">1000–1200</option>
-          <option value="1200,1400">1200–1400</option>
-          <option value="1400,1600">1400–1600</option>
-        </select>
-      </label>
-      <button id="flip-btn" class="ghost-btn" title="Flip board" aria-label="Flip board">&#8645;</button>
+      <button id="flip-btn" class="ghost-btn" title="Flip board" aria-label="Flip board">&#8645; Flip</button>
     </div>
   </header>
 
@@ -93,13 +83,11 @@
   </div>
 
   <footer class="footer muted small">
-    Stats from <a href="https://lichess.org" target="_blank" rel="noopener">lichess.org</a> opening explorer ·
-    Engine: Stockfish (WASM)
+    100% local — opponent + hints powered by Stockfish (WASM) in your browser.
   </footer>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
   <script src="js/openings.js"></script>
-  <script src="js/lichess.js"></script>
   <script src="js/board.js"></script>
   <script src="js/engine.js"></script>
   <script src="js/app.js"></script>

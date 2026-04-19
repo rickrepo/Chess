@@ -78,7 +78,50 @@
       this.piecesLayer = document.createElement("div");
       this.piecesLayer.className = "pieces";
       this.root.appendChild(this.piecesLayer);
+
+      // SVG overlay for arrows (hints)
+      this.arrowLayer = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      this.arrowLayer.setAttribute("class", "arrows");
+      this.arrowLayer.setAttribute("viewBox", "0 0 800 800");
+      this.arrowLayer.setAttribute("preserveAspectRatio", "none");
+      const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+      defs.innerHTML = `<marker id="arrowhead" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="rgba(80,170,80,0.85)"/></marker>`;
+      this.arrowLayer.appendChild(defs);
+      this.root.appendChild(this.arrowLayer);
+
       this._applyOrientation();
+    }
+
+    drawArrow(from, to) {
+      this.clearArrows();
+      if (!from || !to) return;
+      const fromC = this._squareCenter(from);
+      const toC = this._squareCenter(to);
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", fromC.x);
+      line.setAttribute("y1", fromC.y);
+      // Pull endpoint back so the arrowhead doesn't overshoot the square
+      const dx = toC.x - fromC.x, dy = toC.y - fromC.y;
+      const len = Math.hypot(dx, dy);
+      const back = 25;
+      line.setAttribute("x2", toC.x - (dx / len) * back);
+      line.setAttribute("y2", toC.y - (dy / len) * back);
+      line.setAttribute("stroke", "rgba(80,170,80,0.85)");
+      line.setAttribute("stroke-width", "14");
+      line.setAttribute("stroke-linecap", "round");
+      line.setAttribute("marker-end", "url(#arrowhead)");
+      this.arrowLayer.appendChild(line);
+    }
+
+    clearArrows() {
+      [...this.arrowLayer.querySelectorAll("line")].forEach((n) => n.remove());
+    }
+
+    _squareCenter(sq) {
+      const { file, rank } = squareToCoord(sq);
+      const f = this.orientation === "w" ? file : 7 - file;
+      const r = this.orientation === "w" ? rank : 7 - rank;
+      return { x: f * 100 + 50, y: r * 100 + 50 };
     }
 
     _applyOrientation() {

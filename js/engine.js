@@ -1,13 +1,10 @@
-/* Stockfish engine wrapper.
-   We load stockfish.js via CDN as a Web Worker. Communicates over UCI.
-   Public API:
-     const eng = new Engine();
-     await eng.ready();
-     const { score, bestMove, pv } = await eng.evaluate(fen, { depth: 12 });
-     eng.stop();
+/* Stockfish engine wrapper. 100% local: runs as a Web Worker, no network
+   calls during play. Exposes:
+     await eng.ready()
+     await eng.evaluate(fen, { depth, multiPv })   -> { bestMove, score, mateIn, depth, lines: [{move, scoreCp, mateIn, pv}] }
+     eng.stop()
 */
 (function (global) {
-  // Use jsdelivr-hosted stockfish.js (single-threaded, asm.js + wasm).
   const STOCKFISH_URL = "https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/stockfish.js";
 
   class Engine {
@@ -22,30 +19,25 @@
       try {
         this.worker = new Worker(STOCKFISH_URL);
       } catch (e) {
-        // Some browsers block cross-origin workers; fall back to a Blob shim
-        // that imports the script.
         const shim = `importScripts("${STOCKFISH_URL}");`;
         const blob = new Blob([shim], { type: "application/javascript" });
         this.worker = new Worker(URL.createObjectURL(blob));
       }
       this.worker.onmessage = (e) => this._onLine(e.data);
       this._send("uci");
-      await this._waitFor((line) => line === "uciok", 5000);
+      await this._waitFor((line) => line === "uciok", 8000);
       this._send("setoption name Threads value 1");
       this._send("setoption name Hash value 16");
       this._send("isready");
-      await this._waitFor((line) => line === "readyok", 5000);
+      await this._waitFor((line) => line === "readyok", 8000);
     }
 
     ready() { return this.readyPromise; }
 
-    _send(cmd) {
-      this.worker.postMessage(cmd);
-    }
+    _send(cmd) { this.worker.postMessage(cmd); }
 
     _onLine(line) {
       if (typeof line !== "string") return;
-      // Ad-hoc waiters
       if (this._waiters) {
         for (const w of [...this._waiters]) {
           if (w.match(line)) {
@@ -54,38 +46,46 @@
           }
         }
       }
-      if (this.current) {
-        if (line.startsWith("info ")) {
-          // parse score and pv
-          const m = line.match(/depth (\d+).*?score (cp|mate) (-?\d+).*?\bpv (.+)$/);
-          if (m) {
-            this.current.lastInfo = {
-              depth: parseInt(m[1], 10),
-              scoreType: m[2],
-              scoreValue: parseInt(m[3], 10),
-              pv: m[4].split(" "),
-            };
-            if (this.current.onInfo) this.current.onInfo(this.current.lastInfo);
-          }
-        } else if (line.startsWith("bestmove")) {
-          const parts = line.split(" ");
-          const best = parts[1];
-          const info = this.current.lastInfo || { depth: 0, scoreType: "cp", scoreValue: 0, pv: [] };
-          const out = {
-            bestMove: best === "(none)" ? null : best,
-            score: info.scoreType === "cp" ? info.scoreValue / 100 : null,
-            mateIn: info.scoreType === "mate" ? info.scoreValue : null,
-            depth: info.depth,
-            pv: info.pv,
+      if (!this.current) return;
+
+      if (line.startsWith("info ")) {
+        const m = line.match(/depth (\d+).*?(?:multipv (\d+) )?score (cp|mate) (-?\d+).*?\bpv (.+)$/);
+        if (m) {
+          const depth = parseInt(m[1], 10);
+          const multiPv = m[2] ? parseInt(m[2], 10) : 1;
+          const scoreType = m[3];
+          const scoreVal = parseInt(m[4], 10);
+          const pv = m[5].split(" ");
+          this.current.lines[multiPv - 1] = {
+            depth, scoreType, scoreVal, move: pv[0], pv,
           };
-          this.current.resolve(out);
-          this.current = null;
-          this._drain();
+          this.current.lastDepth = Math.max(this.current.lastDepth || 0, depth);
         }
+      } else if (line.startsWith("bestmove")) {
+        const parts = line.split(" ");
+        const best = parts[1];
+        const lines = this.current.lines.filter(Boolean);
+        const top = lines[0] || {};
+        const out = {
+          bestMove: best === "(none)" ? null : best,
+          score: top.scoreType === "cp" ? top.scoreVal / 100 : null,
+          mateIn: top.scoreType === "mate" ? top.scoreVal : null,
+          depth: this.current.lastDepth || 0,
+          lines: lines.map((ln) => ({
+            move: ln.move,
+            scoreCp: ln.scoreType === "cp" ? ln.scoreVal : null,
+            mateIn: ln.scoreType === "mate" ? ln.scoreVal : null,
+            pv: ln.pv,
+          })),
+        };
+        const job = this.current;
+        this.current = null;
+        job.resolve(out);
+        this._drain();
       }
     }
 
-    _waitFor(matchFn, timeoutMs = 3000) {
+    _waitFor(matchFn, timeoutMs = 5000) {
       if (!this._waiters) this._waiters = new Set();
       return new Promise((resolve, reject) => {
         const w = { match: matchFn, resolve };
@@ -101,8 +101,9 @@
 
     evaluate(fen, opts = {}) {
       const depth = opts.depth ?? 12;
+      const multiPv = opts.multiPv ?? 1;
       return new Promise((resolve) => {
-        const job = { fen, depth, resolve, onInfo: opts.onInfo, lastInfo: null };
+        const job = { fen, depth, multiPv, resolve, lines: [] };
         this.queue.push(job);
         if (!this.current) this._drain();
       });
@@ -111,15 +112,14 @@
     _drain() {
       if (this.current || this.queue.length === 0) return;
       this.current = this.queue.shift();
+      this._send(`setoption name MultiPV value ${this.current.multiPv}`);
       this._send("ucinewgame");
       this._send(`position fen ${this.current.fen}`);
       this._send(`go depth ${this.current.depth}`);
     }
 
     stop() {
-      if (this.current) {
-        this._send("stop");
-      }
+      if (this.current) this._send("stop");
       this.queue = [];
     }
   }
