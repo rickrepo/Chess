@@ -368,7 +368,7 @@
 
     _attachDrag(el, entry) {
       el.addEventListener("pointerdown", (e) => {
-        if (e.button !== 0) return;
+        if (e.button !== undefined && e.button !== 0) return;
         if (!this.opts.canDrag || !this.opts.canDrag(entry.square, entry)) return;
         e.preventDefault();
         const startSq = entry.square;
@@ -378,15 +378,35 @@
         const startX = e.clientX;
         const startY = e.clientY;
         const baseTransform = el.style.transform;
+        // On touch, lift the piece up + scale it so the user can see it
+        // above their finger. Mouse: no lift offset.
+        const isTouch = e.pointerType === "touch" || e.pointerType === "pen";
+        const liftY = isTouch ? -sqSize * 0.9 : 0;
+        const scale = isTouch ? 1.6 : 1.0;
+        let lastX = startX;
+        let lastY = startY;
+        let moved = false;
+
         el.classList.add("dragging");
-        el.setPointerCapture?.(e.pointerId);
+        try { el.setPointerCapture?.(e.pointerId); } catch (_) {}
+
+        const updateTransform = (cx, cy) => {
+          const dx = cx - startX;
+          const dy = cy - startY;
+          el.style.transform = `${baseTransform} translate(${dx}px, ${dy + liftY}px) scale(${scale})`;
+        };
+        updateTransform(startX, startY);
 
         const onMove = (ev) => {
-          const dx = ev.clientX - startX;
-          const dy = ev.clientY - startY;
-          // Add to base
-          el.style.transform = `${baseTransform} translate(${dx}px, ${dy}px)`;
+          ev.preventDefault();
+          lastX = ev.clientX;
+          lastY = ev.clientY;
+          if (!moved && (Math.abs(lastX - startX) > 4 || Math.abs(lastY - startY) > 4)) {
+            moved = true;
+          }
+          updateTransform(lastX, lastY);
         };
+
         const onUp = (ev) => {
           el.classList.remove("dragging");
           el.style.transform = baseTransform;
@@ -394,9 +414,11 @@
           window.removeEventListener("pointerup", onUp);
           window.removeEventListener("pointercancel", onUp);
 
-          // Determine drop square
-          const x = ev.clientX - rect.left;
-          const y = ev.clientY - rect.top;
+          // Use the "logical" finger position (where the piece was visually)
+          const cx = (ev.clientX ?? lastX);
+          const cy = (ev.clientY ?? lastY) + liftY;
+          const x = cx - rect.left;
+          const y = cy - rect.top;
           if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
             this.selected = null;
             this.legalForSelected = [];
@@ -412,8 +434,7 @@
             // treat as click — keep selection
             return;
           }
-          // Real drag occurred — suppress the synthetic click that follows.
-          this._suppressNextClick = true;
+          if (moved) this._suppressNextClick = true;
           if (!this.legalForSelected.includes(dest)) {
             this.selected = null;
             this.legalForSelected = [];
@@ -425,7 +446,7 @@
           this._renderHighlights();
           this._tryMove(startSq, dest);
         };
-        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointermove", onMove, { passive: false });
         window.addEventListener("pointerup", onUp);
         window.addEventListener("pointercancel", onUp);
       });

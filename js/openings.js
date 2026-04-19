@@ -171,6 +171,179 @@
         "After 6.Bb5+ c6 7.dxc6 bxc6 8.Be2, you've given a pawn but have huge development.",
       ],
     },
+
+    // ===== Mating Tricks =====
+    // Each has a `walkthrough` of {uci, note} pairs. The app plays them
+    // out fast-forward with the note shown in the coach panel, then drops
+    // you into practice mode from the starting position so you can try
+    // to land the trap yourself against real low-rated opponents.
+    {
+      id: "mate-scholars",
+      name: "Scholar's Mate",
+      group: "Mating Tricks",
+      side: "w",
+      description:
+        "The classic 4-move mate. Bring out queen and bishop to attack f7 — the weakest square in Black's camp at move 1. Works against opponents who don't know the defense.",
+      moves: [],
+      principles: [
+        "1.e4 followed by 2.Bc4 and 3.Qh5 attacking f7 twice.",
+        "Mate threat: Qxf7# (queen defended by bishop, no piece can capture).",
+        "Black must play ...Nc6 + ...g6 to defend. If they play ...Nf6?? blocking the queen — you take f7 with mate.",
+      ],
+      walkthrough: [
+        { uci: "e2e4", note: "1. e4 — open lines for the queen and bishop." },
+        { uci: "e7e5", note: "...e5 — most common reply." },
+        { uci: "f1c4", note: "2. Bc4 — bishop points straight at f7, the weakest square." },
+        { uci: "b8c6", note: "...Nc6 — develops and defends e5." },
+        { uci: "d1h5", note: "3. Qh5! — now Qxf7# is threatened. Black MUST defend f7." },
+        { uci: "g8f6", note: "...Nf6?? — the classic blunder. It attacks the queen but doesn't defend f7. Correct was ...g6 or ...Qe7." },
+        { uci: "h5f7", note: "4. Qxf7# — checkmate! Bishop on c4 defends the queen, king has nowhere to run." },
+      ],
+    },
+    {
+      id: "mate-fools",
+      name: "Fool's Mate",
+      group: "Mating Tricks",
+      side: "b",
+      description:
+        "The fastest possible mate: 2 moves. Only works if White plays the two worst moves on the board. Worth knowing so you spot it instantly.",
+      moves: [],
+      principles: [
+        "Requires White to weaken both diagonals to e1 (h4-e1 and a5-e1).",
+        "After 1.f3 e5 2.g4??, the queen lands on h4 with mate.",
+        "Real opportunity: notice when an opponent plays both f3/f4 and g4 — pounce.",
+      ],
+      walkthrough: [
+        { uci: "f2f3", note: "1. f3?? — weakens the e1-h4 diagonal." },
+        { uci: "e7e5", note: "...e5, opening the queen's path." },
+        { uci: "g2g4", note: "2. g4?? — and now the killer..." },
+        { uci: "d8h4", note: "...Qh4# — checkmate! No piece can interpose, no escape." },
+      ],
+    },
+    {
+      id: "mate-legal",
+      name: "Légal's Trap",
+      group: "Mating Tricks",
+      side: "w",
+      description:
+        "A queen sacrifice for a forced mate, vs. an opponent who pins your knight with ...Bg4. Famous trap dating to the 1700s.",
+      moves: [],
+      principles: [
+        "Setup: 1.e4 e5 2.Nf3 d6 3.Bc4 Bg4 — Black pins the knight to the queen.",
+        "Trick: play 4.Nc3 (extra piece on e5), and if Black plays anything passive, you go 5.Nxe5! offering the queen.",
+        "If Black takes the queen with ...Bxd1??, you mate with Bxf7+ and Nd5#.",
+      ],
+      walkthrough: [
+        { uci: "e2e4", note: "1. e4" },
+        { uci: "e7e5", note: "...e5" },
+        { uci: "g1f3", note: "2. Nf3" },
+        { uci: "d7d6", note: "...d6 (Philidor)" },
+        { uci: "f1c4", note: "3. Bc4 — eyeing f7 as always" },
+        { uci: "c8g4", note: "...Bg4 — pinning the knight to the queen. The trap is set." },
+        { uci: "b1c3", note: "4. Nc3 — adding a piece, ignoring the pin." },
+        { uci: "g7g6", note: "...g6?? — passive. Now we strike." },
+        { uci: "f3e5", note: "5. Nxe5!! — offering the queen!" },
+        { uci: "g4d1", note: "...Bxd1?? takes the bait." },
+        { uci: "c4f7", note: "6. Bxf7+ — check, king can't escape easily" },
+        { uci: "e8e7", note: "...Ke7 — forced." },
+        { uci: "c3d5", note: "7. Nd5# — checkmate! The bishop and two knights cover everything." },
+      ],
+    },
+    {
+      id: "mate-blackburne-shilling",
+      name: "Blackburne Shilling Gambit",
+      group: "Mating Tricks",
+      side: "b",
+      description:
+        "After 1.e4 e5 2.Nf3 Nc6 3.Bc4, play 3...Nd4!? — a 'shilling' trap White falls for if greedy. Best case: smothered mate in 8.",
+      moves: [],
+      principles: [
+        "3...Nd4 looks like it just hangs e5, but it's a trap.",
+        "If 4.Nxe5?? Qg5! threatens both Qxg2 AND Qxe5.",
+        "If White then grabs 5.Nxf7?? (going for the rook), you play 5...Qxg2 6.Rf1 Qxe4+ 7.Be2 Nf3#! — smothered mate.",
+      ],
+      walkthrough: [
+        { uci: "e2e4", note: "1. e4 e5 — standard setup" },
+        { uci: "e7e5", note: "" },
+        { uci: "g1f3", note: "2. Nf3" },
+        { uci: "b8c6", note: "...Nc6" },
+        { uci: "f1c4", note: "3. Bc4 — Italian setup" },
+        { uci: "c6d4", note: "...Nd4!? — the shilling trap! Looks like a beginner blunder." },
+        { uci: "f3e5", note: "4. Nxe5?? — White takes the bait, thinking Black just hung the pawn." },
+        { uci: "d8g5", note: "...Qg5! — double attack: Qxe5 AND Qxg2." },
+        { uci: "e5f7", note: "5. Nxf7?? — White goes for the rook, hoping for tactics." },
+        { uci: "g5g2", note: "...Qxg2 — taking the rook on h1 next." },
+        { uci: "h1f1", note: "6. Rf1 — the rook runs" },
+        { uci: "g2e4", note: "...Qxe4+ — check and grabs the pawn!" },
+        { uci: "c4e2", note: "7. Be2 — only legal block of the check." },
+        { uci: "d4f3", note: "...Nf3# — smothered mate! King on e1, blocked by everything, knight gives mate." },
+      ],
+    },
+    {
+      id: "mate-englund-trap",
+      name: "Englund Gambit Trap",
+      group: "Mating Tricks",
+      side: "b",
+      description:
+        "1.d4 e5!? — the Englund Gambit. If White plays sloppily, Black wins material with the ...Qb4+ trick.",
+      moves: [],
+      principles: [
+        "After 1.d4 e5 2.dxe5 Nc6 3.Nf3 Qe7 4.Bf4 Qb4+ — the trap is set.",
+        "If White plays 5.Bd2?? (the natural block), then 5...Qxb2 attacks the rook AND threatens Qc1#.",
+        "Best for White is 5.Nc3 (NOT Bd2), and Black's compensation is questionable.",
+      ],
+      walkthrough: [
+        { uci: "d2d4", note: "1. d4 — White goes for queen-pawn." },
+        { uci: "e7e5", note: "...e5!? — the Englund Gambit, sacrificing a pawn." },
+        { uci: "d4e5", note: "2. dxe5 — White takes." },
+        { uci: "b8c6", note: "...Nc6 — eyeing e5." },
+        { uci: "g1f3", note: "3. Nf3 — defending e5." },
+        { uci: "d8e7", note: "...Qe7 — pinning the e5 pawn to nothing... yet." },
+        { uci: "c1f4", note: "4. Bf4 — overprotecting e5." },
+        { uci: "e7b4", note: "...Qb4+! — the trap. Hits the bishop on f4 and gives check." },
+        { uci: "f4d2", note: "5. Bd2?? — the natural block, but it's the losing move." },
+        { uci: "b4b2", note: "...Qxb2 — eats the b2 pawn, attacks rook AND threatens Qc1#." },
+        { uci: "d2c3", note: "6. Bc3 — trying to defend." },
+        { uci: "f8b4", note: "...Bb4! — pinning the bishop. White is losing material no matter what." },
+      ],
+    },
+    {
+      id: "mate-smothered",
+      name: "Smothered Mate (pattern)",
+      group: "Mating Tricks",
+      side: "w",
+      description:
+        "Smothered mate: the king has no escape squares because they're all blocked by its OWN pieces, and a knight delivers mate. This puzzle shows the canonical ending pattern.",
+      moves: [],
+      principles: [
+        "Setup: enemy king in the corner with rook/queen and pawns blocking every escape square.",
+        "Knight delivers mate from a square the king cannot reach.",
+        "The full Philidor's Legacy starts with a discovered check + queen sacrifice on g8 to force the rook to block.",
+      ],
+      // Mate-in-1 puzzle: White N on e5 jumps to f7 with mate.
+      startFen: "6rk/6pp/8/4N3/8/8/8/7K w - - 0 1",
+      walkthrough: [
+        { uci: "e5f7", note: "1. Nf7# — smothered mate! King on h8 has no squares: g8 blocked by rook, g7 and h7 blocked by its own pawns. King can't capture the knight on f7 (too far)." },
+      ],
+    },
+    {
+      id: "mate-back-rank",
+      name: "Back Rank Mate Pattern",
+      group: "Mating Tricks",
+      side: "w",
+      description:
+        "The most common mate at every level: castled king with three pawns in front, no luft, rook or queen lands on the back rank.",
+      moves: [],
+      principles: [
+        "Always look for back-rank weakness: king on g8/h8 with pawns f7/g7/h7 unmoved and no defender on the 8th rank.",
+        "Defense: play h6 / h3 (\"luft\") so the king has an escape square.",
+        "Watch for opportunities to deflect or remove the back-rank defender (their rook or queen).",
+      ],
+      startFen: "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+      walkthrough: [
+        { uci: "d1d8", note: "1. Rd8# — rook to the 8th rank. Black king is hemmed in by its own f7/g7/h7 pawns. Mate!" },
+      ],
+    },
   ];
 
   global.OPENINGS = OPENINGS;

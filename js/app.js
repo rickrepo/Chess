@@ -27,6 +27,7 @@
   const historyEl = document.getElementById("history");
   const coachEl = document.getElementById("coach");
   const ratingSelect = document.getElementById("rating-select");
+  const mobileOpeningSelect = document.getElementById("mobile-opening-select");
   const flipBtn = document.getElementById("flip-btn");
   const backBtn = document.getElementById("back-btn");
   const hintBtn = document.getElementById("hint-btn");
@@ -43,17 +44,20 @@
     pendingOpponent: false,
     ratingMin: 0,
     ratingMax: 1000,
+    mode: "practice", // "practice" | "demo"
+    demoCancelled: false,
   };
 
   const board = new ChessBoard(boardEl, {
     canDrag: (sq, entry) => {
-      // Only allow user to drag their own pieces on their turn
       if (!state.opening) return false;
+      if (state.mode === "demo") return false;
       if (state.chess.turn() !== state.opening.side) return false;
       return entry.color === state.opening.side;
     },
     onSelect: (sq, entry) => {
       if (!state.opening) return;
+      if (state.mode === "demo") return;
       if (state.chess.turn() !== state.opening.side) return;
       if (entry.color !== state.opening.side) return;
       const moves = state.chess.moves({ square: sq, verbose: true });
@@ -61,6 +65,7 @@
       board.highlightLegal(moves.map((m) => m.to));
     },
     onUserMove: (from, to, promotion) => {
+      if (state.mode === "demo") return;
       handleUserMove(from, to, promotion);
     },
   });
@@ -68,6 +73,7 @@
   // ====== Render opening list ======
   function renderOpeningList() {
     openingListEl.innerHTML = "";
+    mobileOpeningSelect.innerHTML = '<option value="">— pick one —</option>';
     const groups = new Map();
     for (const o of OPENINGS) {
       if (!groups.has(o.group)) groups.set(o.group, []);
@@ -78,57 +84,85 @@
       label.className = "opening-group-label";
       label.textContent = group;
       openingListEl.appendChild(label);
+      const optGroup = document.createElement("optgroup");
+      optGroup.label = group;
       for (const o of items) {
         const item = document.createElement("div");
         item.className = "opening-item";
         item.dataset.id = o.id;
+        const tag = o.walkthrough ? '<span class="badge">demo</span>' : "";
         item.innerHTML = `
-          <div class="name"><span class="side ${o.side === "w" ? "white" : "black"}"></span>${o.name}</div>
+          <div class="name"><span class="side ${o.side === "w" ? "white" : "black"}"></span>${o.name} ${tag}</div>
           <div class="meta">${o.description}</div>
         `;
         item.onclick = () => selectOpening(o.id);
         openingListEl.appendChild(item);
+
+        const opt = document.createElement("option");
+        opt.value = o.id;
+        opt.textContent = (o.side === "w" ? "♙ " : "♟ ") + o.name;
+        optGroup.appendChild(opt);
       }
+      mobileOpeningSelect.appendChild(optGroup);
     }
   }
 
   function selectOpening(id) {
     const opening = OPENINGS.find((o) => o.id === id);
     if (!opening) return;
+    state.demoCancelled = true; // cancel any in-flight demo
     state.opening = opening;
-    state.chess = new Chess();
     state.historyStack = [];
-    state.setupMoves = [...opening.moves];
+    state.setupMoves = [...(opening.moves || [])];
 
-    // Highlight active item
+    // Highlight active item / sync the mobile dropdown
     [...openingListEl.querySelectorAll(".opening-item")].forEach((el) =>
       el.classList.toggle("active", el.dataset.id === id)
     );
+    if (mobileOpeningSelect.value !== id) mobileOpeningSelect.value = id;
 
     openingTitleEl.textContent = opening.name;
-    coachEl.className = "coach-msg";
-    coachEl.innerHTML = `<strong>${opening.name}</strong> — ${opening.description}<br><br>` +
-      `<em>Key ideas:</em><ul style="margin:6px 0 0 18px;padding:0;">` +
-      opening.principles.map((p) => `<li>${p}</li>`).join("") + `</ul>`;
 
     // Orient board so the user's side is at the bottom
     board.flip(opening.side);
-
-    // Replay setup moves with quick animations
-    replaySetupAndStart();
 
     backBtn.disabled = false;
     hintBtn.disabled = false;
     resetBtn.disabled = false;
     newLineBtn.disabled = false;
+
+    if (opening.walkthrough && opening.walkthrough.length) {
+      // Demo first, then practice from the same starting position.
+      runDemoThenPractice(opening);
+    } else {
+      // Standard opening practice
+      coachEl.className = "coach-msg";
+      coachEl.innerHTML = principlesHtml(opening);
+      replaySetupAndStart();
+    }
+  }
+
+  function principlesHtml(opening) {
+    return `<strong>${opening.name}</strong> — ${opening.description}<br><br>` +
+      `<em>Key ideas:</em><ul style="margin:6px 0 0 18px;padding:0;">` +
+      (opening.principles || []).map((p) => `<li>${p}</li>`).join("") + `</ul>`;
+  }
+
+  function setStartingPosition(opening) {
+    if (opening.startFen) {
+      state.chess = new Chess(opening.startFen);
+    } else {
+      state.chess = new Chess();
+    }
   }
 
   async function replaySetupAndStart() {
-    // Show position with no animation, then advance through setup moves with animation.
-    state.chess = new Chess();
+    state.mode = "practice";
+    setStartingPosition(state.opening);
+    state.historyStack = [];
     board.setPosition(state.chess.fen(), { animate: false, lastMove: null });
     renderHistory();
-    statusEl.textContent = "Setting up line…";
+    statusEl.textContent = state.setupMoves.length ? "Setting up line…" : "";
     for (const uci of state.setupMoves) {
       await wait(220);
       const move = applyUci(uci);
@@ -138,6 +172,59 @@
       renderHistory();
     }
     afterMove();
+  }
+
+  async function runDemoThenPractice(opening) {
+    state.mode = "demo";
+    state.demoCancelled = false;
+    setStartingPosition(opening);
+    state.historyStack = [];
+    board.setPosition(state.chess.fen(), { animate: false, lastMove: null });
+    renderHistory();
+    statusEl.textContent = "Demo — watch the trap unfold";
+    coachEl.className = "coach-msg";
+    coachEl.innerHTML = `<strong>${opening.name}</strong> — ${opening.description}<br><br>` +
+      `<em>Watch the moves below. Then you'll play it from ${opening.side === "w" ? "White's" : "Black's"} side.</em>`;
+
+    const stepDelay = 850;
+    await wait(700);
+    for (let i = 0; i < opening.walkthrough.length; i++) {
+      if (state.demoCancelled) return;
+      const step = opening.walkthrough[i];
+      const move = applyUci(step.uci);
+      if (!move) {
+        console.warn("demo move illegal:", step.uci, "in", state.chess.fen());
+        break;
+      }
+      board.setPosition(state.chess.fen(), { animate: true, lastMove: { from: move.from, to: move.to } });
+      pushHistory(move);
+      renderHistory();
+      // Update check highlight during demo
+      if (state.chess.in_check()) {
+        board.setCheck(findKingSquare(state.chess.turn()));
+      } else {
+        board.setCheck(null);
+      }
+      // Coach shows the note for THIS move
+      const moveLabel = `<strong>${move.san}</strong>`;
+      coachEl.className = "coach-msg";
+      coachEl.innerHTML = `${moveLabel} — ${step.note || ""}`;
+      await wait(stepDelay);
+    }
+
+    if (state.demoCancelled) return;
+
+    // Demo finished — now offer to practice
+    statusEl.textContent = "Demo finished";
+    coachEl.className = "coach-msg good";
+    coachEl.innerHTML =
+      `<strong>That's the pattern.</strong> Now you try it from ${opening.side === "w" ? "White's" : "Black's"} side.<br><br>` +
+      `<em>Key ideas:</em><ul style="margin:6px 0 0 18px;padding:0;">` +
+      (opening.principles || []).map((p) => `<li>${p}</li>`).join("") + `</ul>` +
+      `<br><button id="start-practice-btn" class="primary-btn" style="margin-top:8px;">Practice it</button>` +
+      `<button id="replay-demo-btn" class="ghost-btn" style="margin-left:8px;">Replay demo</button>`;
+    document.getElementById("start-practice-btn").onclick = () => replaySetupAndStart();
+    document.getElementById("replay-demo-btn").onclick = () => runDemoThenPractice(opening);
   }
 
   function applyUci(uci) {
@@ -432,8 +519,20 @@
     board.selectSquare(fromSq);
     board.highlightLegal([toSq]);
   };
-  resetBtn.onclick = () => selectOpening(state.opening.id);
-  newLineBtn.onclick = () => selectOpening(state.opening.id);
+  resetBtn.onclick = () => {
+    if (!state.opening) return;
+    state.demoCancelled = true;
+    replaySetupAndStart();
+  };
+  newLineBtn.onclick = () => {
+    if (!state.opening) return;
+    selectOpening(state.opening.id);
+  };
+
+  mobileOpeningSelect.onchange = () => {
+    const id = mobileOpeningSelect.value;
+    if (id) selectOpening(id);
+  };
 
   // ====== Engine init ======
   (async function initEngine() {
