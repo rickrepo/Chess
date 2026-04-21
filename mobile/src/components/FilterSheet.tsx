@@ -1,7 +1,7 @@
 import React from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { theme } from "@/theme";
-import { allThemes, DIFFICULTIES } from "@/data/puzzles";
+import { allCategories, allThemes, DIFFICULTIES } from "@/data/puzzles";
 import { PuzzleFilter } from "@/hooks/usePuzzleGame";
 
 interface Props {
@@ -14,6 +14,7 @@ interface Props {
 
 export function FilterSheet({ visible, filter, totalFiltered, onChange, onClose }: Props) {
   const themes = React.useMemo(() => allThemes(), []);
+  const categories = React.useMemo(() => allCategories(), []);
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -46,11 +47,14 @@ export function FilterSheet({ visible, filter, totalFiltered, onChange, onClose 
               active={filter.category === ""}
               onPress={() => onChange({ ...filter, category: "" })}
             />
-            <Chip
-              label="Mate in 1"
-              active={filter.category === "Mate in 1"}
-              onPress={() => onChange({ ...filter, category: "Mate in 1" })}
-            />
+            {categories.map((c) => (
+              <Chip
+                key={c}
+                label={c}
+                active={filter.category === c}
+                onPress={() => onChange({ ...filter, category: c })}
+              />
+            ))}
           </Section>
 
           <Section label="Theme">

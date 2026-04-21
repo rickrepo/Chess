@@ -7,16 +7,19 @@ import {
   Text,
   View,
 } from "react-native";
+import { SvgXml } from "react-native-svg";
 import { Chess } from "chess.js";
 import { theme } from "@/theme";
 import {
   FILES,
+  Color,
+  PieceType,
   coordToSquare,
   legalMovesFrom,
   piecesFromFen,
   squareToCoord,
 } from "@/util/chess";
-import { PIECE_COLORS, glyph } from "@/util/pieces";
+import { PIECE_SVGS } from "@/util/piece-svgs";
 
 interface Props {
   fen: string;
@@ -198,8 +201,8 @@ export function ChessBoard({
 
 interface PieceProps {
   sq: string;
-  color: "w" | "b";
-  type: import("@/util/chess").PieceType;
+  color: Color;
+  type: PieceType;
   sqSize: number;
   orientation: "w" | "b";
   isHintPiece: boolean;
@@ -230,8 +233,9 @@ function AnimatedPiece({ sq, color, type, sqSize, orientation, isHintPiece, poin
     ]).start();
   }, [f, r, sqSize, x, y]);
 
-  const isWhite = color === "w";
-  const fontSize = sqSize * 0.78;
+  const key = `${color}${type}` as keyof typeof PIECE_SVGS;
+  const svg = PIECE_SVGS[key];
+  const pieceSize = sqSize * 0.94;
   return (
     <Animated.View
       pointerEvents={pointerThrough ? "none" : "auto"}
@@ -244,19 +248,21 @@ function AnimatedPiece({ sq, color, type, sqSize, orientation, isHintPiece, poin
         justifyContent: "center",
       }}
     >
-      <Text
-        style={{
-          fontSize,
-          lineHeight: sqSize,
-          textAlign: "center",
-          color: isWhite ? PIECE_COLORS.white : PIECE_COLORS.black,
-          textShadowColor: isWhite ? PIECE_COLORS.whiteStroke : PIECE_COLORS.blackStroke,
-          textShadowOffset: { width: 0, height: 0 },
-          textShadowRadius: isHintPiece ? 10 : 2,
-        }}
+      <View
+        style={
+          isHintPiece
+            ? {
+                shadowColor: "#6aa84f",
+                shadowOffset: { width: 0, height: 0 },
+                shadowOpacity: 1,
+                shadowRadius: 12,
+                elevation: 8,
+              }
+            : undefined
+        }
       >
-        {glyph(color, type)}
-      </Text>
+        <SvgXml xml={svg} width={pieceSize} height={pieceSize} />
+      </View>
     </Animated.View>
   );
 }

@@ -4,11 +4,17 @@
  *   - starting position is legal (side-not-to-move NOT in check),
  *   - every solution move is legal,
  *   - the final position is actually checkmate.
+ *
+ * Also concatenates the Lichess-imported bundle (if generated — see
+ * scripts/import-lichess-puzzles.js). The placeholder bundle is empty
+ * until the user runs the importer.
  */
+import { LICHESS_PUZZLES } from "./lichess-puzzles";
+
 export interface Puzzle {
   id: string;
   name: string;
-  category: "Mate in 1" | "Mate in 2" | "Tactic";
+  category: string; // free-form: "Mate in 1" | "Mate in 2" | "Mate in 3" | "Mate" | "Tactic"
   themes: string[];
   difficulty: 1 | 2 | 3;
   fen: string;
@@ -16,7 +22,7 @@ export interface Puzzle {
   description: string;
 }
 
-export const PUZZLES: Puzzle[] = [
+const CURATED_PUZZLES: Puzzle[] = [
   {
     id: "p-back-rank",
     name: "Back-rank classic",
@@ -171,10 +177,18 @@ export const PUZZLES: Puzzle[] = [
   },
 ];
 
+export const PUZZLES: Puzzle[] = [...CURATED_PUZZLES, ...LICHESS_PUZZLES];
+
 export const DIFFICULTIES: ReadonlyArray<1 | 2 | 3> = [1, 2, 3];
 
 export function allThemes(): string[] {
   const set = new Set<string>();
   for (const p of PUZZLES) p.themes.forEach((t) => set.add(t));
+  return [...set].sort();
+}
+
+export function allCategories(): string[] {
+  const set = new Set<string>();
+  for (const p of PUZZLES) set.add(p.category);
   return [...set].sort();
 }
