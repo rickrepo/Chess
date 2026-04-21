@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Opener",
+    "slug": "opener-puzzles",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "scheme": "opener",
+    "splash": {
+      "backgroundColor": "#1c1b18",
+      "resizeMode": "contain"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "bundleIdentifier": "com.opener.puzzles",
+      "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": []
+      }
+    },
+    "android": {
+      "package": "com.opener.puzzles",
+      "adaptiveIcon": {
+        "backgroundColor": "#1c1b18"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
