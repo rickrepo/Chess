@@ -1,13 +1,13 @@
 /**
- * Curated puzzle bank — same data as the web version.
- * Every FEN + solution validated against chess.js:
+ * Curated puzzle bank.
+ * Every FEN + solution is validated against chess.js:
  *   - starting position is legal (side-not-to-move NOT in check),
  *   - every solution move is legal,
  *   - the final position is actually checkmate.
  *
- * Also concatenates the Lichess-imported bundle (if generated — see
- * scripts/import-lichess-puzzles.js). The placeholder bundle is empty
- * until the user runs the importer.
+ * The app also concatenates the Lichess-imported bundle (if generated —
+ * see scripts/import-lichess-puzzles.js). The placeholder bundle is
+ * empty until the user runs the importer.
  */
 import { LICHESS_PUZZLES } from "./lichess-puzzles";
 

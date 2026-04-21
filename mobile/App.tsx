@@ -93,7 +93,7 @@ function Screen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
-          <Text style={styles.brand}>♞ Opener</Text>
+          <Text style={styles.brand}>♞ Chess Puzzles</Text>
           <Pressable
             onPress={() => setFilterOpen(true)}
             style={({ pressed }) => [styles.filterBtn, pressed && { opacity: 0.8 }]}

@@ -1,8 +1,14 @@
-# Opener — Mobile (iOS / Android)
+# Chess Puzzles — Mobile (iOS / Android)
 
-Expo-powered React Native port of the Opener chess puzzle game. Same
-curated puzzle bank as the web app, built as a native app you can
-install on your iPhone through Expo Go or the App Store.
+Expo-powered React Native chess puzzle app. Solve mate-in-N and
+tactical puzzles against a timer, scored on speed and difficulty.
+Built as a native app you can install on your iPhone through Expo Go
+or the App Store.
+
+> **Working name** — rename to your preferred brand in three places
+> before App Store submission: `app.json` (`name`, `slug`,
+> `bundleIdentifier`), `package.json` (`name`), and the brand `<Text>`
+> in `App.tsx`.
 
 ## What's in here
 
